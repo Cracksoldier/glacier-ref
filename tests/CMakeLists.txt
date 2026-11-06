@@ -72,3 +72,19 @@ glacier_add_test(tst_imagecache
 glacier_add_test(tst_boardview
     SOURCES tst_boardview.cpp
     LIBS glacier::canvas glacier::core)
+
+glacier_add_test(tst_documentchange
+    SOURCES tst_documentchange.cpp
+    LIBS glacier::core)
+
+glacier_add_test(tst_operations
+    SOURCES tst_operations.cpp
+    LIBS glacier::editing)
+
+glacier_add_test(tst_commandcontroller
+    SOURCES tst_commandcontroller.cpp
+    LIBS glacier::editing)
+
+glacier_add_test(tst_clipboardfragment
+    SOURCES tst_clipboardfragment.cpp
+    LIBS glacier::editing)
