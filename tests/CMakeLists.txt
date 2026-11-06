@@ -24,7 +24,7 @@ glacier_add_test(tst_platforminfo
 
 glacier_add_test(tst_mainwindow
     SOURCES tst_mainwindow.cpp
-    LIBS glacier::app glacier::canvas)
+    LIBS glacier::app glacier::canvas glacier::editing)
 
 glacier_add_test(tst_affine2d
     SOURCES tst_affine2d.cpp
@@ -71,7 +71,7 @@ glacier_add_test(tst_imagecache
 
 glacier_add_test(tst_boardview
     SOURCES tst_boardview.cpp
-    LIBS glacier::canvas glacier::core)
+    LIBS glacier::canvas glacier::editing glacier::core)
 
 glacier_add_test(tst_documentchange
     SOURCES tst_documentchange.cpp

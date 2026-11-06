@@ -57,8 +57,10 @@ public:
     void insert(const QByteArray &sha256, const QImage &image);
 
     // Best available pixmap for drawing at `neededSide` device pixels (longest
-    // side). Null if nothing is cached yet; schedules the needed level.
-    QPixmap best(const QByteArray &sha256, int neededSide);
+    // side). Null if nothing is cached yet; schedules the needed level. With
+    // `grayscale`, returns a grayscale rendering (spec §3 preview), converted
+    // once per level and cached in the same budget; assets are never changed.
+    QPixmap best(const QByteArray &sha256, int neededSide, bool grayscale = false);
 
     // Level side that would be decoded for a request (for tests/benchmarks).
     int levelFor(const QByteArray &sha256, int neededSide) const;
@@ -76,6 +78,7 @@ private:
         int maxSide = 0;
     };
     static QString key(const QByteArray &sha256, int side);
+    QPixmap bestColor(const QByteArray &sha256, int neededSide);
     void schedule(const QByteArray &sha256, int side);
 
     std::shared_ptr<SessionAssetStore> m_store;

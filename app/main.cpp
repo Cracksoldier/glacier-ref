@@ -56,11 +56,16 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    int status = 0;
-    {
-        glacier::MainWindow window(*services); // destroyed before the services
-        window.show();
-        status = QApplication::exec();
-    }
+    auto *window = new glacier::MainWindow(*services);
+    window->setAttribute(Qt::WA_DeleteOnClose); // more windows via File > New Window
+    window->show();
+    const int status = QApplication::exec();
+
+    // Windows must be gone before the services they use.
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    const auto remaining = QApplication::topLevelWidgets();
+    for (QWidget *widget : remaining)
+        if (qobject_cast<glacier::MainWindow *>(widget))
+            delete widget;
     return status;
 }

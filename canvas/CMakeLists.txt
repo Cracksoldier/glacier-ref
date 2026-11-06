@@ -1,12 +1,14 @@
 add_library(glacier_canvas STATIC
+    include/glacier/canvas/BoardItems.h
     include/glacier/canvas/BoardScene.h
     include/glacier/canvas/BoardView.h
     include/glacier/canvas/ImageCache.h
-    include/glacier/canvas/ImageItem.h
+    include/glacier/canvas/TransformTool.h
+    src/BoardItems.cpp
     src/BoardScene.cpp
     src/BoardView.cpp
     src/ImageCache.cpp
-    src/ImageItem.cpp)
+    src/TransformTool.cpp)
 add_library(glacier::canvas ALIAS glacier_canvas)
 
 glacier_configure_target(glacier_canvas)

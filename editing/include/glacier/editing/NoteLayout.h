@@ -1,8 +1,11 @@
 #pragma once
 
+#include <QColor>
 #include <QFont>
 #include <QSizeF>
 #include <QString>
+
+class QPainter;
 
 namespace glacier::editing {
 
@@ -19,6 +22,8 @@ struct NoteLayout
     static QFont font(double fontSize);
     // Height for wrapping `text` at `width` (both in board units), including padding.
     static double height(const QString &text, double width, double fontSize);
+    // Paints wrapped text inside (0,0)-(width,height), with the same layout.
+    static void paint(QPainter *painter, const QString &text, double width, double fontSize, QColor color);
 };
 
 } // namespace glacier::editing

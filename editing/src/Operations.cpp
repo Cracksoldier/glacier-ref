@@ -647,6 +647,26 @@ OpResult setNoteWidth(const BoardDocument &doc, const Id &noteId, double width)
     return done(std::move(change));
 }
 
+OpResult resizeNote(const BoardDocument &doc, const Id &noteId, double width, const Affine2D &localTransform)
+{
+    const NoteData *n = doc.note(noteId);
+    if (!n)
+        return fail({});
+    if (isLocked(doc, noteId))
+        return fail(lockedMessage(1));
+    if (!std::isfinite(width) || !localTransform.isInvertible())
+        return fail({});
+    NoteData copy = *n;
+    copy.width = std::clamp(width, NoteLayout::MinWidth, NoteLayout::MaxWidth);
+    copy.height = NoteLayout::height(copy.text, copy.width, copy.fontSize);
+    copy.transform = localTransform;
+    if (copy == *n)
+        return done({});
+    DocumentChange change;
+    change.update.notes.append(copy);
+    return done(std::move(change));
+}
+
 OpResult setNoteStyle(const BoardDocument &doc, const QList<Id> &noteIds, double fontSize, quint32 textColor,
                       quint32 backgroundColor)
 {
@@ -808,6 +828,41 @@ OpResult duplicate(const BoardDocument &doc, const QList<Id> &ids, QPointF offse
     }
     const Snapshot fragment = doc.snapshot(units);
     return paste(doc, fragment, std::nullopt, offset);
+}
+
+Snapshot clipboardSnapshot(const BoardDocument &doc, const QList<Id> &ids)
+{
+    QList<Id> topLevel;
+    QList<Id> children;
+    for (const Id &id : unique(ids))
+        (doc.groupOf(id).isNull() ? topLevel : children).append(id);
+    Snapshot snap = doc.snapshot(topLevel);
+    QSet<Id> assets;
+    for (const Asset &a : std::as_const(snap.assets))
+        assets.insert(a.id);
+    double z = 0.0;
+    for (const ImageItemData &i : std::as_const(snap.images))
+        z = std::max(z, i.z);
+    for (const Id &id : children) {
+        if (const ImageItemData *i = doc.image(id)) {
+            ImageItemData copy = *i;
+            copy.transform = doc.worldTransform(id);
+            copy.groupId = Id();
+            copy.z = (z += 1.0);
+            snap.images.append(copy);
+            if (!assets.contains(i->assetId)) {
+                assets.insert(i->assetId);
+                snap.assets.append(*doc.asset(i->assetId));
+            }
+        } else if (const NoteData *n = doc.note(id)) {
+            NoteData copy = *n;
+            copy.transform = doc.worldTransform(id);
+            copy.groupId = Id();
+            copy.z = (z += 1.0);
+            snap.notes.append(copy);
+        }
+    }
+    return snap;
 }
 
 } // namespace glacier::editing::ops

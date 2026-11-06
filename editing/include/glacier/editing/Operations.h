@@ -67,6 +67,9 @@ OpResult createNote(const BoardDocument &doc, QPointF centre, const QString &tex
                     double fontSize = 0.0, double width = 0.0);
 OpResult editNote(const BoardDocument &doc, const Id &noteId, const QString &text);
 OpResult setNoteWidth(const BoardDocument &doc, const Id &noteId, double width);
+// Width change from a resize gesture, with the note's new local transform
+// (dragging the left edge keeps the right edge in place).
+OpResult resizeNote(const BoardDocument &doc, const Id &noteId, double width, const Affine2D &localTransform);
 OpResult setNoteStyle(const BoardDocument &doc, const QList<Id> &noteIds, double fontSize, quint32 textColor,
                       quint32 backgroundColor);
 
@@ -78,6 +81,11 @@ OpResult setGrayscale(const BoardDocument &doc, bool enabled);
 OpResult paste(const BoardDocument &doc, const Snapshot &fragment, std::optional<QPointF> anchor,
                QPointF offset = {});
 OpResult duplicate(const BoardDocument &doc, const QList<Id> &ids, QPointF offset = {20.0, 20.0});
+
+// Records to put on the clipboard for a selection: top-level entities as they
+// are (groups with their children); selected group children become loose items
+// with board transforms, so the fragment is self-contained.
+Snapshot clipboardSnapshot(const BoardDocument &doc, const QList<Id> &ids);
 
 } // namespace ops
 } // namespace glacier::editing

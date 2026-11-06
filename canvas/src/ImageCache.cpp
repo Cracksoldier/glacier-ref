@@ -85,7 +85,21 @@ void ImageCache::insert(const QByteArray &sha256, const QImage &image)
     m_cache.insert(key(sha256, level), pixmap, costKiB(*pixmap)); // QCache takes ownership
 }
 
-QPixmap ImageCache::best(const QByteArray &sha256, int neededSide)
+QPixmap ImageCache::best(const QByteArray &sha256, int neededSide, bool grayscale)
+{
+    const QPixmap color = bestColor(sha256, neededSide);
+    if (!grayscale || color.isNull())
+        return color;
+    const QString grayKey = key(sha256, std::max(color.width(), color.height())) + u":g";
+    if (const QPixmap *gray = m_cache.object(grayKey))
+        return *gray;
+    auto *gray = new QPixmap(QPixmap::fromImage(color.toImage().convertToFormat(QImage::Format_Grayscale8)));
+    const QPixmap result = *gray;
+    m_cache.insert(grayKey, gray, costKiB(*gray)); // QCache takes ownership
+    return result;
+}
+
+QPixmap ImageCache::bestColor(const QByteArray &sha256, int neededSide)
 {
     const int wanted = levelFor(sha256, std::max(1, neededSide));
     if (wanted == 0)
