@@ -2,7 +2,7 @@
 
 Version: 1.1 • Date: 2026-11-06 • Status: implementation baseline
 
-Changes in 1.1: build system changed from qmake to CMake; Qt version pinning and update-tracking policy defined (§6); application identity, process model, and manual Windows/macOS validation confirmed (§1, §3, §7); review decisions added: session asset store and hash-addressed recovery (§4, §5), SVG policy (§4), view dirty-state rules, item clipboard, window opacity, English-only UI, help link, and editing defaults (§3), GIF/TIFF import (§4), Flatpak delivery (§7, §8), ZIP-library criteria and atomic-save mechanism (§5); performance reference machine and constrained measurement profile, Fedora as secondary Linux validation, and locale-independence testing (§7, §9); explicit import format allowlist (§4).
+Changes in 1.1: build system changed from qmake to CMake; Qt version pinning and update-tracking policy defined (§6); application identity, process model, and manual Windows/macOS validation confirmed (§1, §3, §7); review decisions added: session asset store and hash-addressed recovery (§4, §5), SVG policy (§4), view dirty-state rules, item clipboard, window opacity, English-only UI, help link, and editing defaults (§3), GIF/TIFF import (§4), Flatpak delivery (§7, §8), ZIP-library criteria and atomic-save mechanism (§5); performance reference machine and constrained measurement profile, Fedora as secondary Linux validation, and locale-independence testing (§7, §9); explicit import format allowlist (§4); M1 implementation decisions: folder import, svgz rejection, additional SVG rejections (§4).
 
 ## 1. Purpose
 
@@ -146,7 +146,8 @@ SVG acceptance must reject external resource references and active content. Supp
 
 - Allow a whitelist of SVG elements and attributes that Qt SVG renders.
 - Ignore editor metadata: the `<metadata>` element and the sodipodi, inkscape, rdf, cc, and dc namespaces.
-- Reject `<script>`, `<foreignObject>`, event-handler attributes (`on*`), DOCTYPE and entity declarations, and CSS `@import`.
+- Reject `<script>`, `<foreignObject>`, event-handler attributes (`on*`), DOCTYPE and entity declarations, processing instructions (such as `xml-stylesheet`), CSS `@import`, and CSS escapes (which could hide references).
+- Compressed SVG (`.svgz`) is not supported in v1.
 - Allow references (`href`, `xlink:href`, CSS `url()`) only to same-document fragments (`#id`) or `data:` URIs; reject all others.
 - `data:` URIs may contain only PNG or JPEG; they are bounded by the per-asset size and dimension limits and validated like other raster input.
 - Elements outside the whitelist produce a clear error naming the construct, rather than an empty or partially rendered successful import.
@@ -155,7 +156,7 @@ Parsing/rendering must never cause external I/O; add fixtures that prove this be
 
 ### Import transactions and limits
 
-Decode and hash in bounded worker jobs. Show progress for batches and allow cancellation. Add successfully decoded items as one undoable batch; failures are listed by filename. Cancellation retains already accepted items and removes unfinished placeholders. Avoid duplicate import when MIME data exposes both pixels and a file for the same drag.
+Decode and hash in bounded worker jobs. Show progress for batches and allow cancellation. Add successfully decoded items as one undoable batch; failures are listed by filename. Cancellation retains already accepted items and removes unfinished placeholders. Avoid duplicate import when MIME data exposes both pixels and a file for the same drag. A dropped or chosen folder imports the supported images directly inside it; subfolders are not traversed, and skipped subfolders and non-image files are reported.
 
 Initial configurable safeguards: 100 MiB per input asset, 100 megapixels decoded dimensions, 2 GiB board file size, 10,000 items, and 100,000 characters per note. These are safety limits, not performance guarantees. Validate dimensions and allocation estimates before full decode. Unsupported or oversized input must not terminate the application.
 

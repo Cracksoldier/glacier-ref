@@ -8,16 +8,25 @@ concrete and records decisions made during implementation.
 
 | Directory | Target | Depends on | Responsibility |
 | --- | --- | --- | --- |
-| `core/` | `glacier::core` | Qt Core | Data model (`BoardDocument`, M1), IDs, validation, revisions, app identity. **No Gui/Widgets.** |
-| `io/` | `glacier::io` (M3) | core, miniz | `BoardSerializer`: ZIP/JSON validation, migrations, atomic save; `RecoveryService` storage |
-| `canvas/` | `glacier::canvas` | Qt Widgets | `BoardScene`/`BoardView`, `ImageItem`, `NoteItem`, `GroupItem`: presentation and hit testing only |
+| `core/` | `glacier::core` | Qt Core | `BoardDocument`, `Affine2D`, `Limits`, `BatchLayout`, `SessionAssetStore`, IDs, app identity. **No Gui/Widgets.** |
+| `io/` | `glacier::io` | core, Qt Gui, Svg, Concurrent | Format allowlist, `probeImage`/`decodeImage` (orientation, sRGB), `validateSvg`, `MimeRouter`, `ImportService`; `BoardSerializer` and recovery storage arrive in M3 (with miniz) |
+| `canvas/` | `glacier::canvas` | io, Qt Widgets | `ImageCache`, `BoardScene`/`BoardView`, `ImageItem` (`NoteItem`, `GroupItem` in M2): presentation and hit testing only |
 | `platform/` | `glacier::platform` | Qt Gui | `PlatformInfo` (M0); `PlatformWindowService` capabilities (M4) |
-| `app/` | `glacier::app`, `glacier-ref` | all | Windows, menus/actions, `CommandController`, `SettingsService`, wiring |
+| `app/` | `glacier::app`, `glacier-ref` | all | `AppServices` (process-wide store, pool, cache), `MainWindow` (actions, import UI); `CommandController`, `SettingsService` later |
+| `tools/` | `glacier-fixturegen`, `glacier-bench` | app libs | Dataset generator and benchmark (not shipped) |
 | `third_party/miniz` | `glacier::miniz` | — | Vendored ZIP/deflate (see [DEPENDENCIES.md](DEPENDENCIES.md)) |
 | `tests/` | `tst_*` | as needed | Qt Test suites, each run in default and `de_AT` locale |
 
 Dependency direction: `app → canvas, io, platform → core`. `core` never
 includes Gui or Widgets headers; `canvas` items never own persistent state.
+
+## M1 implementation notes
+
+- **Import flow:** `MimeRouter` turns drops, the clipboard and dialogs into an `ImportPlan`. `ImportService` runs one job per source on the shared pool (`QtConcurrent::mapped`): read ≤ 100 MiB → probe → 256 px thumbnail → `SessionAssetStore::put`. Results arrive through a `QFutureWatcher` owned by the window's service and are applied by `MainWindow` as one `addImages` call, placed by `layoutBatch` around the drop point or view centre. There are no placeholders: a non-modal progress dialog with Cancel is shown instead, and cancelling keeps finished images.
+- **Orientation:** Qt 6.12 applies EXIF orientation for JPEG and TIFF only. `io` parses PNG `eXIf` and WebP `EXIF` orientation itself. `QImageReader` handlers are order-sensitive, so the frame/page count uses a separate reader.
+- **Image cache:** levels with longest side 256…8192 px (capped at the asset size), stored as `QPixmap` in a `QCache` with KiB cost and a 512 MiB default budget. A miss returns the closest cached level and schedules the needed one (at most 64 pending). Decodes read bytes from the session store, so originals never stay in RAM.
+- **View:** the scene rect is fixed to ±1e7 (spec range); at 6400% the scroll range (2e7 × 64) still fits an int. Zoom is clamped to 1%–6400% and anchored manually. Selection outlines and the rubber band are drawn in `drawForeground` in viewport coordinates, so they keep a constant on-screen width. This requires `FullViewportUpdate` (no scroll blitting). Items are selectable but not movable until M2.
+- **Peak memory:** at most one raw decode above 16 MP runs at a time; `QImageReader`'s allocation limit is set from `Limits::maxDecodedPixels`.
 
 ## Ownership
 

@@ -46,6 +46,16 @@ type, desktop, and screens.
 Optional: `sudo cmake --install build/dev-release --prefix /usr/local` installs
 the binary, desktop entry, and icon.
 
+## Developer tools (datasets and benchmark)
+
+```sh
+build/dev-release/tools/fixturegen/glacier-fixturegen --output /data/glacier-fixtures   # standard + stress
+QT_QPA_PLATFORM=offscreen tools/perf/run-constrained.sh build/dev-release/tools/bench/glacier-bench \
+    --dataset /data/glacier-fixtures/standard --size 2560x1440 --json results.json
+```
+
+The datasets are generated deterministically (`--seed`) and never committed. Put them on a filesystem with ample free space, not a RAM-backed `/tmp`. `--screen HDMI-A-1` runs the benchmark full screen on a real output instead of offscreen. Tools build by default; disable them with `-DGLACIER_BUILD_TOOLS=OFF`.
+
 ## Fedora
 
 ```sh

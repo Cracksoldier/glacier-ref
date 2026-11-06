@@ -45,5 +45,6 @@ not clicked).
 | 2026-11-06 | `d9b86fd` | `glacier-ref --platform-info` | PASS: no AF_INET/AF_INET6 activity; 4 AF_UNIX calls |
 | 2026-11-06 | `d9b86fd` | `timeout 5 glacier-ref` (main window on Wayland, no interaction) | PASS: no AF_INET/AF_INET6 activity; 6 AF_UNIX calls |
 | 2026-11-06 | — | Negative control: Python `connect()` to 192.0.2.1:80 | FAIL as intended: `socket(AF_INET…)` and `connect` reported |
+| 2026-11-06 | `28d2dd4` | `glacier-bench --dataset stress` (1,000 mixed images incl. 103 SVGs: import, decode, render, 2×60 frames; offscreen) | PASS: no AF_INET/AF_INET6 activity; 3 AF_UNIX calls |
 
 Environment: CachyOS, KDE Plasma 6.8.2 (Wayland), strace 7.3, util-linux 2.42.4.

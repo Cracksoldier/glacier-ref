@@ -3,7 +3,7 @@
 Version: 1.1  
 Date: 2026-11-06  
 Source: `GLACIER_REF_SPECIFICATION.md`, version 1.1  
-Status: M0 complete; M1 not started
+Status: M0 complete; M1 in progress
 
 ## 1. Purpose and working rules
 
@@ -26,7 +26,7 @@ The target is a focused offline reference-board application using C++20, Qt 6 Wi
 | Milestone | Outcome | Prerequisites | Acceptance ownership | Status |
 | --- | --- | --- | --- | --- |
 | M0 — Foundation | Reproducible cross-platform application skeleton | None | Build prerequisites for all gates | Complete |
-| M1 — Canvas and import | Usable image board with bounded decoding | M0 | Early A01, A08, A10, A11 checks | Not started |
+| M1 — Canvas and import | Usable image board with bounded decoding | M0 | Early A01, A08, A10, A11 checks | In progress |
 | M2 — Editing | Complete v1 board editing and undo/redo | M1 | A01–A02 | Not started |
 | M3 — Durable boards | Portable saving, links, recovery, safe loading | M2 | A03–A07 | Not started |
 | M4 — Desktop polish | Reliable minimal UI, native behavior, performance | M3 | A08, A10, A11 | Not started |
@@ -70,17 +70,17 @@ A buildable application shell, CMake project and presets, CI workflows, dependen
 
 ### Tasks
 
-- [ ] **M1.01 — Document model:** Implement `BoardDocument` with stable IDs, item/asset references, document revisions, and validation independent of graphics items.
-- [ ] **M1.02 — Canvas:** Implement pan, cursor-anchored zoom, fit board/selection, an expanding scene region, coordinate limits, and the specified zoom range.
-- [ ] **M1.03 — Selection:** Implement single selection, additive selection, rectangle selection, and clear visual selection feedback.
-- [ ] **M1.04 — Import entry points:** Support file dialogs, local-file drag-and-drop, local `file:` URLs, and clipboard image pixels. Avoid duplicate imports from redundant MIME representations.
-- [ ] **M1.05 — Offline boundary:** Reject HTTP(S)-only input with useful guidance; do not fetch HTML image sources or remote dependencies.
-- [ ] **M1.06 — Raster formats:** Decode PNG, JPEG, WebP, BMP, GIF, and TIFF. Preserve alpha and source bytes; apply EXIF orientation and supported sRGB conversion consistently, with fixtures proving orientation for JPEG, WebP, PNG, and TIFF. Encode clipboard pixels as PNG.
-- [ ] **M1.07 — SVG policy:** Implement the `QXmlStreamReader` validation pass: element/attribute whitelist, ignored editor metadata, rejection of scripts, `foreignObject`, event attributes, DTD/entities, `@import`, and any reference other than `#id` or bounded PNG/JPEG `data:` URIs. Re-render SVG vectors per zoom level through the cache. Verify that SVG processing causes no external I/O.
-- [ ] **M1.08 — Worker pipeline:** Add bounded decoding/hashing jobs, progress, cancellation, stale-result rejection, and safe document closure while jobs run.
-- [ ] **M1.09 — Asset store/cache:** Implement the per-session asset store in the application data directory, organized and deduplicated by SHA-256, with free-space checks and cleanup of stores left by ended processes; prototype resolution levels and a bounded LRU decoded-image cache. Keep QPixmap/GUI operations on the GUI thread.
-- [ ] **M1.10 — Import resilience:** Enforce source-size and dimension safeguards before large allocation. Report failed files individually. Handle animated input as a static first frame and multi-page TIFF as its first page, each with a notice.
-- [ ] **M1.11 — Baseline fixtures:** Prepare licensed or generated standard/stress datasets and malformed-input fixtures. Script the constrained measurement profile (four P-cores, 16 GiB memory, 2560×1440 display) on the reference workstation and record the hardware and initial timing/memory results.
+- [x] **M1.01 — Document model:** Implement `BoardDocument` with stable IDs, item/asset references, document revisions, and validation independent of graphics items.
+- [x] **M1.02 — Canvas:** Implement pan, cursor-anchored zoom, fit board/selection, an expanding scene region, coordinate limits, and the specified zoom range.
+- [x] **M1.03 — Selection:** Implement single selection, additive selection, rectangle selection, and clear visual selection feedback.
+- [x] **M1.04 — Import entry points:** Support file dialogs, local-file drag-and-drop, local `file:` URLs, and clipboard image pixels. Avoid duplicate imports from redundant MIME representations.
+- [x] **M1.05 — Offline boundary:** Reject HTTP(S)-only input with useful guidance; do not fetch HTML image sources or remote dependencies.
+- [x] **M1.06 — Raster formats:** Decode PNG, JPEG, WebP, BMP, GIF, and TIFF. Preserve alpha and source bytes; apply EXIF orientation and supported sRGB conversion consistently, with fixtures proving orientation for JPEG, WebP, PNG, and TIFF. Encode clipboard pixels as PNG.
+- [x] **M1.07 — SVG policy:** Implement the `QXmlStreamReader` validation pass: element/attribute whitelist, ignored editor metadata, rejection of scripts, `foreignObject`, event attributes, DTD/entities, `@import`, and any reference other than `#id` or bounded PNG/JPEG `data:` URIs. Re-render SVG vectors per zoom level through the cache. Verify that SVG processing causes no external I/O.
+- [x] **M1.08 — Worker pipeline:** Add bounded decoding/hashing jobs, progress, cancellation, stale-result rejection, and safe document closure while jobs run.
+- [x] **M1.09 — Asset store/cache:** Implement the per-session asset store in the application data directory, organized and deduplicated by SHA-256, with free-space checks and cleanup of stores left by ended processes; prototype resolution levels and a bounded LRU decoded-image cache. Keep QPixmap/GUI operations on the GUI thread.
+- [x] **M1.10 — Import resilience:** Enforce source-size and dimension safeguards before large allocation. Report failed files individually. Handle animated input as a static first frame and multi-page TIFF as its first page, each with a notice.
+- [x] **M1.11 — Baseline fixtures:** Prepare licensed or generated standard/stress datasets and malformed-input fixtures. Script the constrained measurement profile (four P-cores, 16 GiB memory, 2560×1440 display) on the reference workstation and record the hardware and initial timing/memory results.
 - [ ] **M1.12 — Wayland feasibility:** Exercise native clipboard, file drop, focus, dialogs, scaling, move/resize, and always-on-top capability behavior.
 
 ### Deliverables
@@ -89,10 +89,10 @@ A usable import-and-navigation prototype, reproducible datasets, import error ha
 
 ### Completion criteria
 
-- [ ] All specified static formats display with correct orientation and transparency.
-- [ ] Imports remain cancellable; closing a board during decoding causes no crash or stale insertion into another board.
-- [ ] Unsupported inputs leave the board usable and do not produce network requests.
-- [ ] The standard dataset can be navigated without retaining every original image as a full-resolution decode.
+- [x] All specified static formats display with correct orientation and transparency.
+- [x] Imports remain cancellable; closing a board during decoding causes no crash or stale insertion into another board.
+- [x] Unsupported inputs leave the board usable and do not produce network requests.
+- [x] The standard dataset can be navigated without retaining every original image as a full-resolution decode.
 - [ ] Performance results and compositor limitations are recorded, with corrective work assigned to M4.
 
 **Demo:** Drop a mixed image batch, paste an image, pan/zoom, select items, cancel a large import, and show the rejection of a URL-only drop.
