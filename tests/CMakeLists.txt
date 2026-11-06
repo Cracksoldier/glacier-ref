@@ -33,3 +33,14 @@ glacier_add_test(tst_affine2d
 glacier_add_test(tst_boarddocument
     SOURCES tst_boarddocument.cpp
     LIBS glacier::core)
+
+qt_add_executable(glacier_test_lockholder helpers/lockholder.cpp)
+target_link_libraries(glacier_test_lockholder PRIVATE Qt6::Core)
+set_target_properties(glacier_test_lockholder PROPERTIES MACOSX_BUNDLE OFF WIN32_EXECUTABLE OFF)
+
+glacier_add_test(tst_sessionassetstore
+    SOURCES tst_sessionassetstore.cpp
+    LIBS glacier::core Qt6::Concurrent)
+target_compile_definitions(tst_sessionassetstore PRIVATE
+    GLACIER_LOCKHOLDER_PATH="$<TARGET_FILE:glacier_test_lockholder>")
+add_dependencies(tst_sessionassetstore glacier_test_lockholder)
