@@ -20,6 +20,7 @@ qt_standard_project_setup()
 
 add_subdirectory(third_party/miniz)
 add_subdirectory(core)
+add_subdirectory(io)
 add_subdirectory(platform)
 add_subdirectory(canvas)
 add_subdirectory(app)

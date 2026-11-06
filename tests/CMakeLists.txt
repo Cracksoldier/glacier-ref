@@ -44,3 +44,11 @@ glacier_add_test(tst_sessionassetstore
 target_compile_definitions(tst_sessionassetstore PRIVATE
     GLACIER_LOCKHOLDER_PATH="$<TARGET_FILE:glacier_test_lockholder>")
 add_dependencies(tst_sessionassetstore glacier_test_lockholder)
+
+glacier_add_test(tst_imageprobe
+    SOURCES tst_imageprobe.cpp
+    LIBS glacier::io)
+
+glacier_add_test(tst_svgvalidator
+    SOURCES tst_svgvalidator.cpp
+    LIBS glacier::io)
