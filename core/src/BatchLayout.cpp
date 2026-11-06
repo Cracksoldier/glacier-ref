@@ -7,7 +7,10 @@
 
 namespace glacier {
 
-QList<QPointF> layoutBatch(const QList<QSizeF> &sizes, QPointF anchor, double spacing)
+namespace {
+
+// Rows from (0,0); returns positions and the block size.
+QList<QPointF> rows(const QList<QSizeF> &sizes, double spacing, QSizeF *block)
 {
     QList<QPointF> positions;
     positions.reserve(sizes.size());
@@ -34,7 +37,29 @@ QList<QPointF> layoutBatch(const QList<QSizeF> &sizes, QPointF anchor, double sp
         rowHeight = std::max(rowHeight, s.height());
         x += s.width() + spacing;
     }
-    const double blockHeight = y + rowHeight;
+    *block = QSizeF(blockWidth, y + rowHeight);
+    return positions;
+}
+
+} // namespace
+
+QList<QPointF> layoutRows(const QList<QSizeF> &sizes, QPointF topLeft, double spacing)
+{
+    QSizeF block;
+    QList<QPointF> positions = rows(sizes, spacing, &block);
+    for (QPointF &p : positions)
+        p += topLeft;
+    return positions;
+}
+
+QList<QPointF> layoutBatch(const QList<QSizeF> &sizes, QPointF anchor, double spacing)
+{
+    QSizeF block;
+    QList<QPointF> positions = rows(sizes, spacing, &block);
+    if (positions.isEmpty())
+        return positions;
+    const double blockWidth = block.width();
+    const double blockHeight = block.height();
 
     // Centre on the anchor, then keep the block inside the coordinate range.
     const double limit = Limits::CoordinateLimit;

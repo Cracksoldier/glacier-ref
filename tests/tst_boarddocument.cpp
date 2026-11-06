@@ -12,6 +12,8 @@
 using namespace Qt::StringLiterals;
 using namespace glacier;
 
+Q_DECLARE_METATYPE(glacier::DocumentDelta)
+
 namespace {
 
 QByteArray digestOf(const QByteArray &content)
@@ -51,7 +53,7 @@ private slots:
     void addImagesIsOneRevisionAndSignal()
     {
         BoardDocument doc;
-        QSignalSpy added(&doc, &BoardDocument::itemsAdded);
+        QSignalSpy changed(&doc, &BoardDocument::changed);
         QString error;
         const auto result = doc.addImages({image("a", {0, 0}), image("b", {200, 0})}, &error);
         QVERIFY2(result.has_value(), qPrintable(error));
@@ -59,8 +61,11 @@ private slots:
         QCOMPARE(result->newAssetIds.size(), 2);
         QCOMPARE(doc.revision(), 1u);
         QVERIFY(doc.isDirty());
-        QCOMPARE(added.size(), 1);
-        QCOMPARE(added.first().first().value<QList<Id>>(), result->itemIds);
+        QCOMPARE(changed.size(), 1);
+        const auto delta = changed.first().first().value<DocumentDelta>();
+        QCOMPARE(delta.inserted.size(), 4); // two assets, two items
+        for (const Id &id : result->itemIds)
+            QVERIFY(delta.inserted.contains(id));
         QCOMPARE(doc.boundingRect(), QRectF(0, 0, 300, 50));
         QCOMPARE(doc.validate(), QString());
     }
@@ -130,7 +135,7 @@ private slots:
         case 5: bad.position = QPointF(Limits::CoordinateLimit - 10, 0); break;
         case 6: bad.byteLength = limits.maxAssetBytes + 1; break;
         }
-        QSignalSpy added(&doc, &BoardDocument::itemsAdded);
+        QSignalSpy added(&doc, &BoardDocument::changed);
         QString error;
         QVERIFY(!doc.addImages({image("good"), bad}, &error).has_value());
         QVERIFY(!error.isEmpty());
@@ -159,7 +164,7 @@ private slots:
         BoardDocument doc;
         const auto result = doc.addImages({image("a"), image("b")});
         QVERIFY(result);
-        QSignalSpy removed(&doc, &BoardDocument::itemsRemoved);
+        QSignalSpy removed(&doc, &BoardDocument::changed);
 
         QString error;
         QVERIFY(!doc.removeAssets({result->newAssetIds.first()}, &error)); // still referenced

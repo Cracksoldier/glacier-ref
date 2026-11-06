@@ -11,6 +11,11 @@ namespace glacier {
 
 namespace {
 
+constexpr qsizetype MaxGroupNameLength = 256;
+constexpr double MaxNoteExtent = 1.0e6;
+constexpr double MinFontSize = 1.0;
+constexpr double MaxFontSize = 1000.0;
+
 bool isFinite(double v)
 {
     return std::isfinite(v);
@@ -27,6 +32,19 @@ void setError(QString *error, const QString &message)
 {
     if (error)
         *error = message;
+}
+
+bool validCrop(const QRectF &c)
+{
+    return isFinite(c.x()) && isFinite(c.y()) && isFinite(c.width()) && isFinite(c.height()) && c.x() >= 0.0
+        && c.y() >= 0.0 && c.width() > 0.0 && c.height() > 0.0 && c.right() <= 1.0 + 1e-12
+        && c.bottom() <= 1.0 + 1e-12;
+}
+
+template<typename T>
+void sortById(QList<T> &list)
+{
+    std::sort(list.begin(), list.end(), [](const T &a, const T &b) { return a.id.toString() < b.id.toString(); });
 }
 
 } // namespace
@@ -56,79 +74,274 @@ bool BoardDocument::isSupportedMediaType(const QString &mediaType)
     return types.contains(mediaType);
 }
 
-QString BoardDocument::checkItem(const ImageItemData &item) const
+// ---------------------------------------------------------------------------
+// Validation of a complete state
+
+QString BoardDocument::validateState(const State &s, const Limits &limits)
 {
-    if (item.id.isNull())
-        return u"item has a null ID"_s;
-    if (!m_assets.contains(item.assetId))
-        return u"item references a missing asset"_s;
-    if (!item.transform.isInvertible())
-        return u"item transform is not finite or not invertible"_s;
-    if (!isFinite(item.displaySize.width()) || !isFinite(item.displaySize.height())
-        || item.displaySize.width() <= 0.0 || item.displaySize.height() <= 0.0)
-        return u"item display size must be finite and positive"_s;
-    if (!withinCoordinateLimit(item.boardBounds()))
-        return u"item lies outside the supported coordinate range"_s;
-    const QRectF &c = item.crop;
-    if (!isFinite(c.x()) || !isFinite(c.y()) || !isFinite(c.width()) || !isFinite(c.height())
-        || c.x() < 0.0 || c.y() < 0.0 || c.width() <= 0.0 || c.height() <= 0.0
-        || c.right() > 1.0 || c.bottom() > 1.0)
-        return u"item crop must be a non-empty rectangle inside the image"_s;
-    if (!isFinite(item.z))
-        return u"item z-order must be finite"_s;
+    if (s.images.size() + s.notes.size() > limits.maxItems)
+        return u"a board can hold at most %1 items"_s.arg(limits.maxItems);
+
+    QSet<Id> allIds;
+    auto claim = [&allIds](const Id &id) {
+        if (id.isNull() || allIds.contains(id))
+            return false;
+        allIds.insert(id);
+        return true;
+    };
+
+    QSet<QByteArray> digests;
+    for (auto it = s.assets.cbegin(); it != s.assets.cend(); ++it) {
+        const Asset &a = *it;
+        if (a.id != it.key() || !claim(a.id))
+            return u"duplicate or mismatched asset ID"_s;
+        if (!isValidDigest(a.sha256) || digests.contains(a.sha256))
+            return u"invalid or duplicate asset digest"_s;
+        digests.insert(a.sha256);
+        if (!isSupportedMediaType(a.mediaType))
+            return u"asset has an unsupported media type"_s;
+        if (a.orientedSize.width() <= 0 || a.orientedSize.height() <= 0
+            || qint64(a.orientedSize.width()) * a.orientedSize.height() > limits.maxDecodedPixels)
+            return u"asset dimensions are invalid or exceed the limit"_s;
+        if (a.byteLength <= 0 || a.byteLength > limits.maxAssetBytes)
+            return u"asset size is invalid or exceeds the limit"_s;
+    }
+
+    // Groups first: children lists define membership.
+    QHash<Id, Id> memberOf; // child -> group
+    for (auto it = s.groups.cbegin(); it != s.groups.cend(); ++it) {
+        const GroupData &g = *it;
+        if (g.id != it.key() || !claim(g.id))
+            return u"duplicate or mismatched group ID"_s;
+        if (g.children.isEmpty())
+            return u"a group must have at least one member"_s;
+        if (g.name.size() > MaxGroupNameLength)
+            return u"group name is too long"_s;
+        if (!g.transform.isInvertible())
+            return u"group transform is not finite or not invertible"_s;
+        if (!isFinite(g.z))
+            return u"group z-order must be finite"_s;
+        for (const Id &child : g.children) {
+            if (memberOf.contains(child))
+                return u"an item belongs to more than one group or is listed twice"_s;
+            if (!s.images.contains(child) && !s.notes.contains(child))
+                return u"group member is not an image or note (groups cannot be nested)"_s;
+            memberOf.insert(child, g.id);
+        }
+    }
+
+    auto checkPlacement = [&](const Id &id, const Id &groupId, const Affine2D &transform, const QRectF &local,
+                              double z) -> QString {
+        if (!transform.isInvertible())
+            return u"item transform is not finite or not invertible"_s;
+        if (!isFinite(z))
+            return u"item z-order must be finite"_s;
+        if (memberOf.value(id) != groupId)
+            return u"group membership is inconsistent"_s;
+        Affine2D world = transform;
+        if (!groupId.isNull())
+            world = transform * s.groups.value(groupId).transform;
+        if (!world.isInvertible() || !withinCoordinateLimit(world.mapRect(local)))
+            return u"item lies outside the supported coordinate range"_s;
+        return {};
+    };
+
+    for (auto it = s.images.cbegin(); it != s.images.cend(); ++it) {
+        const ImageItemData &item = *it;
+        if (item.id != it.key() || !claim(item.id))
+            return u"duplicate or mismatched item ID"_s;
+        if (!s.assets.contains(item.assetId))
+            return u"item references a missing asset"_s;
+        if (!isFinite(item.displaySize.width()) || !isFinite(item.displaySize.height())
+            || item.displaySize.width() <= 0.0 || item.displaySize.height() <= 0.0)
+            return u"item display size must be finite and positive"_s;
+        if (!validCrop(item.crop))
+            return u"item crop must be a non-empty rectangle inside the image"_s;
+        if (const QString e = checkPlacement(item.id, item.groupId, item.transform, item.localBounds(), item.z);
+            !e.isEmpty())
+            return e;
+    }
+
+    for (auto it = s.notes.cbegin(); it != s.notes.cend(); ++it) {
+        const NoteData &note = *it;
+        if (note.id != it.key() || !claim(note.id))
+            return u"duplicate or mismatched note ID"_s;
+        if (note.text.size() > limits.maxNoteCharacters)
+            return u"a note can hold at most %1 characters"_s.arg(limits.maxNoteCharacters);
+        if (!isFinite(note.width) || !isFinite(note.height) || note.width <= 0.0 || note.height <= 0.0
+            || note.width > MaxNoteExtent || note.height > MaxNoteExtent)
+            return u"note size must be finite and positive"_s;
+        if (!isFinite(note.fontSize) || note.fontSize < MinFontSize || note.fontSize > MaxFontSize)
+            return u"note font size is out of range"_s;
+        if (const QString e = checkPlacement(note.id, note.groupId, note.transform, note.localBounds(), note.z);
+            !e.isEmpty())
+            return e;
+    }
     return {};
 }
 
-std::optional<AddImagesResult> BoardDocument::addImages(const QList<NewImage> &images, QString *error)
+QString BoardDocument::validate() const
 {
-    if (m_items.size() + images.size() > m_limits.maxItems) {
-        setError(error, u"a board can hold at most %1 items"_s.arg(m_limits.maxItems));
+    State s{m_assets, m_images, m_notes, m_groups, m_view};
+    if (const QString e = validateState(s, m_limits); !e.isEmpty())
+        return e;
+    if (m_assetsByDigest.size() != m_assets.size())
+        return u"asset digest index is inconsistent"_s;
+    for (const Asset &a : m_assets) {
+        if (m_assetsByDigest.value(a.sha256) != a.id)
+            return u"asset digest index is inconsistent"_s;
+    }
+    return {};
+}
+
+// ---------------------------------------------------------------------------
+// The single mutation primitive
+
+std::optional<DocumentChange> BoardDocument::apply(const DocumentChange &change, QString *error)
+{
+    if (!change.update.assets.isEmpty()) {
+        setError(error, u"assets are immutable"_s);
+        return std::nullopt;
+    }
+    if (change.isEmpty())
+        return DocumentChange{};
+
+    State s{m_assets, m_images, m_notes, m_groups, m_view};
+    DocumentChange inverse;
+    DocumentDelta delta;
+
+    // 1. Removals.
+    QSet<Id> removed;
+    for (const Id &id : change.remove) {
+        if (removed.contains(id)) {
+            setError(error, u"an entity is removed twice"_s);
+            return std::nullopt;
+        }
+        removed.insert(id);
+        if (auto it = s.images.find(id); it != s.images.end()) {
+            inverse.insert.images.append(*it);
+            s.images.erase(it);
+        } else if (auto nt = s.notes.find(id); nt != s.notes.end()) {
+            inverse.insert.notes.append(*nt);
+            s.notes.erase(nt);
+        } else if (auto gt = s.groups.find(id); gt != s.groups.end()) {
+            inverse.insert.groups.append(*gt);
+            s.groups.erase(gt);
+        } else if (auto at = s.assets.find(id); at != s.assets.end()) {
+            inverse.insert.assets.append(*at);
+            s.assets.erase(at);
+        } else {
+            setError(error, u"cannot remove an entity that does not exist"_s);
+            return std::nullopt;
+        }
+        delta.removed.append(id);
+    }
+
+    // 2. Insertions (IDs must be new).
+    auto exists = [&s](const Id &id) {
+        return s.images.contains(id) || s.notes.contains(id) || s.groups.contains(id) || s.assets.contains(id);
+    };
+    QString problem;
+    auto insertAll = [&](auto &target, const auto &records) {
+        for (const auto &record : records) {
+            if (record.id.isNull() || exists(record.id)) {
+                problem = u"inserted entity ID is null or already in use"_s;
+                return false;
+            }
+            target.insert(record.id, record);
+            inverse.remove.append(record.id);
+            delta.inserted.append(record.id);
+        }
+        return true;
+    };
+    if (!insertAll(s.assets, change.insert.assets) || !insertAll(s.images, change.insert.images)
+        || !insertAll(s.notes, change.insert.notes) || !insertAll(s.groups, change.insert.groups)) {
+        setError(error, problem);
         return std::nullopt;
     }
 
-    AddImagesResult result;
-    QHash<QByteArray, Asset> newAssets; // by digest, for assets not yet in the document
-    QList<ImageItemData> newItems;
-    newItems.reserve(images.size());
+    // 3. Updates (records replace existing ones with the same ID).
+    QSet<Id> updated;
+    auto updateAll = [&](auto &target, const auto &records, auto &inverseList) {
+        for (const auto &record : records) {
+            auto it = target.find(record.id);
+            if (it == target.end() || updated.contains(record.id) || delta.inserted.contains(record.id)) {
+                problem = u"cannot update an entity that does not exist (or twice)"_s;
+                return false;
+            }
+            updated.insert(record.id);
+            inverseList.append(*it);
+            *it = record;
+            delta.updated.append(record.id);
+        }
+        return true;
+    };
+    if (!updateAll(s.images, change.update.images, inverse.update.images)
+        || !updateAll(s.notes, change.update.notes, inverse.update.notes)
+        || !updateAll(s.groups, change.update.groups, inverse.update.groups)) {
+        setError(error, problem);
+        return std::nullopt;
+    }
 
-    double z = m_maxZ;
+    // 4. View settings.
+    if (change.view && *change.view != s.view) {
+        inverse.view = s.view;
+        s.view = *change.view;
+        delta.viewChanged = true;
+    }
+
+    if (const QString e = validateState(s, m_limits); !e.isEmpty()) {
+        setError(error, e);
+        return std::nullopt;
+    }
+
+    // Commit.
+    m_assets = std::move(s.assets);
+    m_images = std::move(s.images);
+    m_notes = std::move(s.notes);
+    m_groups = std::move(s.groups);
+    m_view = s.view;
+    m_assetsByDigest.clear();
+    for (const Asset &a : std::as_const(m_assets))
+        m_assetsByDigest.insert(a.sha256, a.id);
+
+    ++m_revision;
+    emit revisionChanged(m_revision);
+    emit changed(delta);
+    return inverse;
+}
+
+// ---------------------------------------------------------------------------
+// Convenience mutations
+
+std::optional<DocumentChange> BoardDocument::addImagesChange(const QList<NewImage> &images, AddImagesResult *result,
+                                                             QString *error) const
+{
+    DocumentChange change;
+    AddImagesResult r;
+    QHash<QByteArray, Id> pending;
+    double z = maxTopLevelZ();
     for (const NewImage &image : images) {
         if (!isValidDigest(image.sha256)) {
             setError(error, u"invalid asset digest"_s);
             return std::nullopt;
         }
-
         Id assetId;
-        if (const auto it = m_assetsByDigest.constFind(image.sha256); it != m_assetsByDigest.cend()) {
+        if (const Asset *existing = assetByDigest(image.sha256)) {
+            assetId = existing->id;
+        } else if (const auto it = pending.constFind(image.sha256); it != pending.cend()) {
             assetId = *it;
-        } else if (const auto pending = newAssets.constFind(image.sha256); pending != newAssets.cend()) {
-            assetId = pending->id;
         } else {
-            if (!isSupportedMediaType(image.mediaType)) {
-                setError(error, u"unsupported media type"_s);
-                return std::nullopt;
-            }
-            const QSize size = image.orientedSize;
-            if (size.width() <= 0 || size.height() <= 0
-                || qint64(size.width()) * size.height() > m_limits.maxDecodedPixels) {
-                setError(error, u"asset dimensions are invalid or exceed the limit"_s);
-                return std::nullopt;
-            }
-            if (image.byteLength <= 0 || image.byteLength > m_limits.maxAssetBytes) {
-                setError(error, u"asset size is invalid or exceeds the limit"_s);
-                return std::nullopt;
-            }
-            Asset asset{Id::generate(), image.sha256, image.mediaType, size, image.byteLength};
+            Asset asset{Id::generate(), image.sha256, image.mediaType, image.orientedSize, image.byteLength};
             assetId = asset.id;
-            newAssets.insert(asset.sha256, asset);
-            result.newAssetIds.append(asset.id);
+            pending.insert(asset.sha256, asset.id);
+            change.insert.assets.append(asset);
+            r.newAssetIds.append(asset.id);
         }
-
         if (!isFinite(image.position.x()) || !isFinite(image.position.y())) {
             setError(error, u"item position must be finite"_s);
             return std::nullopt;
         }
-
         ImageItemData item;
         item.id = Id::generate();
         item.assetId = assetId;
@@ -136,83 +349,63 @@ std::optional<AddImagesResult> BoardDocument::addImages(const QList<NewImage> &i
         item.displaySize = image.displaySize.isEmpty() ? QSizeF(image.orientedSize) : image.displaySize;
         z += 1.0;
         item.z = z;
-        newItems.append(item);
+        change.insert.images.append(item);
+        r.itemIds.append(item.id);
     }
+    if (result)
+        *result = r;
+    return change;
+}
 
-    // Validate items against existing plus pending assets before committing.
-    for (const Asset &asset : std::as_const(newAssets))
-        m_assets.insert(asset.id, asset);
-    for (const ImageItemData &item : std::as_const(newItems)) {
-        const QString problem = checkItem(item);
-        if (!problem.isEmpty()) {
-            for (const Asset &asset : std::as_const(newAssets))
-                m_assets.remove(asset.id);
-            setError(error, problem);
-            return std::nullopt;
-        }
-    }
-
-    for (const Asset &asset : std::as_const(newAssets))
-        m_assetsByDigest.insert(asset.sha256, asset.id);
-    for (const ImageItemData &item : std::as_const(newItems)) {
-        m_items.insert(item.id, item);
-        result.itemIds.append(item.id);
-    }
-    m_maxZ = z;
-
-    if (!result.itemIds.isEmpty()) {
-        bumpRevision();
-        emit itemsAdded(result.itemIds);
-    }
+std::optional<AddImagesResult> BoardDocument::addImages(const QList<NewImage> &images, QString *error)
+{
+    AddImagesResult result;
+    const auto change = addImagesChange(images, &result, error);
+    if (!change || !apply(*change, error))
+        return std::nullopt;
     return result;
 }
 
-bool BoardDocument::removeItems(const QList<Id> &itemIds, QString *error)
+bool BoardDocument::removeItems(const QList<Id> &ids, QString *error)
 {
-    for (const Id &id : itemIds) {
-        if (!m_items.contains(id)) {
-            setError(error, u"item does not exist"_s);
-            return false;
-        }
-    }
-    if (itemIds.isEmpty())
-        return true;
-    for (const Id &id : itemIds)
-        m_items.remove(id);
-    bumpRevision();
-    emit itemsRemoved(itemIds);
-    return true;
+    DocumentChange change;
+    change.remove = ids;
+    return apply(change, error).has_value();
 }
 
 bool BoardDocument::removeAssets(const QList<Id> &assetIds, QString *error)
 {
-    QSet<Id> referenced;
-    for (const ImageItemData &item : std::as_const(m_items))
-        referenced.insert(item.assetId);
     for (const Id &id : assetIds) {
         if (!m_assets.contains(id)) {
             setError(error, u"asset does not exist"_s);
             return false;
         }
-        if (referenced.contains(id)) {
-            setError(error, u"asset is still referenced"_s);
-            return false;
+        for (const ImageItemData &item : std::as_const(m_images)) {
+            if (item.assetId == id) {
+                setError(error, u"asset is still referenced"_s);
+                return false;
+            }
         }
     }
-    if (assetIds.isEmpty())
-        return true;
-    for (const Id &id : assetIds) {
-        m_assetsByDigest.remove(m_assets.value(id).sha256);
-        m_assets.remove(id);
-    }
-    bumpRevision();
-    return true;
+    DocumentChange change;
+    change.remove = assetIds;
+    return apply(change, error).has_value();
 }
 
-const ImageItemData *BoardDocument::item(const Id &id) const
+// ---------------------------------------------------------------------------
+// Queries
+
+EntityKind BoardDocument::kind(const Id &id) const
 {
-    const auto it = m_items.constFind(id);
-    return it == m_items.cend() ? nullptr : &*it;
+    if (m_images.contains(id))
+        return EntityKind::Image;
+    if (m_notes.contains(id))
+        return EntityKind::Note;
+    if (m_groups.contains(id))
+        return EntityKind::Group;
+    if (m_assets.contains(id))
+        return EntityKind::Asset;
+    return EntityKind::None;
 }
 
 const Asset *BoardDocument::asset(const Id &id) const
@@ -227,61 +420,181 @@ const Asset *BoardDocument::assetByDigest(const QByteArray &sha256) const
     return it == m_assetsByDigest.cend() ? nullptr : asset(*it);
 }
 
-QList<Id> BoardDocument::itemIdsByZ() const
+const ImageItemData *BoardDocument::image(const Id &id) const
 {
-    QList<const ImageItemData *> items;
-    items.reserve(m_items.size());
-    for (const ImageItemData &item : m_items)
-        items.append(&item);
-    std::sort(items.begin(), items.end(), [](const ImageItemData *a, const ImageItemData *b) {
-        return a->z != b->z ? a->z < b->z : a->id.toString() < b->id.toString();
+    const auto it = m_images.constFind(id);
+    return it == m_images.cend() ? nullptr : &*it;
+}
+
+const NoteData *BoardDocument::note(const Id &id) const
+{
+    const auto it = m_notes.constFind(id);
+    return it == m_notes.cend() ? nullptr : &*it;
+}
+
+const GroupData *BoardDocument::group(const Id &id) const
+{
+    const auto it = m_groups.constFind(id);
+    return it == m_groups.cend() ? nullptr : &*it;
+}
+
+Id BoardDocument::groupOf(const Id &id) const
+{
+    if (const ImageItemData *i = image(id))
+        return i->groupId;
+    if (const NoteData *n = note(id))
+        return n->groupId;
+    return {};
+}
+
+double BoardDocument::maxTopLevelZ() const
+{
+    double z = 0.0;
+    for (const ImageItemData &i : m_images)
+        if (i.groupId.isNull())
+            z = std::max(z, i.z);
+    for (const NoteData &n : m_notes)
+        if (n.groupId.isNull())
+            z = std::max(z, n.z);
+    for (const GroupData &g : m_groups)
+        z = std::max(z, g.z);
+    return z;
+}
+
+QList<Id> BoardDocument::topLevelIdsByZ() const
+{
+    QList<std::pair<double, Id>> entries;
+    for (const ImageItemData &i : m_images)
+        if (i.groupId.isNull())
+            entries.append({i.z, i.id});
+    for (const NoteData &n : m_notes)
+        if (n.groupId.isNull())
+            entries.append({n.z, n.id});
+    for (const GroupData &g : m_groups)
+        entries.append({g.z, g.id});
+    std::sort(entries.begin(), entries.end(), [](const auto &a, const auto &b) {
+        return a.first != b.first ? a.first < b.first : a.second.toString() < b.second.toString();
     });
     QList<Id> ids;
-    ids.reserve(items.size());
-    for (const ImageItemData *item : std::as_const(items))
-        ids.append(item->id);
+    ids.reserve(entries.size());
+    for (const auto &e : std::as_const(entries))
+        ids.append(e.second);
     return ids;
+}
+
+QList<Id> BoardDocument::itemIdsByZ() const
+{
+    QList<Id> ids;
+    for (const Id &id : topLevelIdsByZ()) {
+        if (const GroupData *g = group(id)) {
+            for (const Id &child : g->children)
+                if (m_images.contains(child))
+                    ids.append(child);
+        } else if (m_images.contains(id)) {
+            ids.append(id);
+        }
+    }
+    return ids;
+}
+
+Affine2D BoardDocument::worldTransform(const Id &id) const
+{
+    auto withGroup = [this](const Affine2D &t, const Id &groupId) {
+        if (const GroupData *g = group(groupId))
+            return t * g->transform;
+        return t;
+    };
+    if (const ImageItemData *i = image(id))
+        return withGroup(i->transform, i->groupId);
+    if (const NoteData *n = note(id))
+        return withGroup(n->transform, n->groupId);
+    if (const GroupData *g = group(id))
+        return g->transform;
+    return {};
+}
+
+QRectF BoardDocument::worldBounds(const Id &id) const
+{
+    if (const ImageItemData *i = image(id))
+        return worldTransform(id).mapRect(i->localBounds());
+    if (const NoteData *n = note(id))
+        return worldTransform(id).mapRect(n->localBounds());
+    if (const GroupData *g = group(id)) {
+        QRectF bounds;
+        for (const Id &child : g->children) {
+            const QRectF b = worldBounds(child);
+            bounds = bounds.isNull() ? b : bounds.united(b);
+        }
+        return bounds;
+    }
+    return {};
 }
 
 QRectF BoardDocument::boundingRect() const
 {
     QRectF bounds;
-    for (const ImageItemData &item : m_items)
-        bounds = bounds.isNull() ? item.boardBounds() : bounds.united(item.boardBounds());
+    auto unite = [&bounds](const QRectF &b) { bounds = bounds.isNull() ? b : bounds.united(b); };
+    for (const ImageItemData &i : m_images)
+        unite(worldBounds(i.id));
+    for (const NoteData &n : m_notes)
+        unite(worldBounds(n.id));
     return bounds;
 }
 
-QString BoardDocument::validate() const
+Snapshot BoardDocument::snapshot(const QList<Id> &ids) const
 {
-    if (m_items.size() > m_limits.maxItems)
-        return u"too many items"_s;
-    for (auto it = m_assets.cbegin(); it != m_assets.cend(); ++it) {
-        const Asset &asset = *it;
-        if (asset.id.isNull() || asset.id != it.key())
-            return u"asset ID mismatch"_s;
-        if (!isValidDigest(asset.sha256) || m_assetsByDigest.value(asset.sha256) != asset.id)
-            return u"asset digest index is inconsistent"_s;
-        if (!isSupportedMediaType(asset.mediaType))
-            return u"asset has an unsupported media type"_s;
-    }
-    if (m_assetsByDigest.size() != m_assets.size())
-        return u"duplicate asset digests"_s;
+    Snapshot snap;
     QSet<Id> seen;
-    for (auto it = m_items.cbegin(); it != m_items.cend(); ++it) {
-        if (it->id != it.key() || seen.contains(it->id) || m_assets.contains(it->id))
-            return u"duplicate or mismatched item ID"_s;
-        seen.insert(it->id);
-        const QString problem = checkItem(*it);
-        if (!problem.isEmpty())
-            return problem;
+    auto addImage = [&](const Id &id) {
+        if (seen.contains(id))
+            return;
+        if (const ImageItemData *i = image(id)) {
+            seen.insert(id);
+            snap.images.append(*i);
+            if (!seen.contains(i->assetId)) {
+                seen.insert(i->assetId);
+                snap.assets.append(m_assets.value(i->assetId));
+            }
+        }
+    };
+    auto addNote = [&](const Id &id) {
+        if (seen.contains(id))
+            return;
+        if (const NoteData *n = note(id)) {
+            seen.insert(id);
+            snap.notes.append(*n);
+        }
+    };
+    for (const Id &id : ids) {
+        if (const GroupData *g = group(id)) {
+            if (seen.contains(id))
+                continue;
+            seen.insert(id);
+            snap.groups.append(*g);
+            for (const Id &child : g->children) {
+                addImage(child);
+                addNote(child);
+            }
+        } else {
+            addImage(id);
+            addNote(id);
+        }
     }
-    return {};
+    return snap;
 }
 
-void BoardDocument::bumpRevision()
+Snapshot BoardDocument::snapshotAll() const
 {
-    ++m_revision;
-    emit revisionChanged(m_revision);
+    Snapshot snap;
+    snap.assets = m_assets.values();
+    snap.images = m_images.values();
+    snap.notes = m_notes.values();
+    snap.groups = m_groups.values();
+    sortById(snap.assets);
+    sortById(snap.images);
+    sortById(snap.notes);
+    sortById(snap.groups);
+    return snap;
 }
 
 } // namespace glacier

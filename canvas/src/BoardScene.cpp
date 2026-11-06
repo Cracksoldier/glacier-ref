@@ -25,8 +25,12 @@ BoardScene::BoardScene(BoardDocument *document, ImageCache *cache, QObject *pare
 {
     const double limit = Limits::CoordinateLimit;
     setSceneRect(-limit, -limit, 2 * limit, 2 * limit);
-    connect(document, &BoardDocument::itemsAdded, this, &BoardScene::addItems);
-    connect(document, &BoardDocument::itemsRemoved, this, &BoardScene::removeItems);
+    connect(document, &BoardDocument::changed, this, [this](const DocumentDelta &delta) {
+        removeItems(delta.removed);
+        removeItems(delta.updated);
+        addItems(delta.updated);
+        addItems(delta.inserted);
+    });
     if (cache)
         connect(cache, &ImageCache::levelReady, this, &BoardScene::onLevelReady);
     addItems(document->itemIdsByZ());
