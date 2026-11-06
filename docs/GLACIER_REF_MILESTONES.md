@@ -3,7 +3,7 @@
 Version: 1.1  
 Date: 2026-11-06  
 Source: `GLACIER_REF_SPECIFICATION.md`, version 1.1  
-Status: planning baseline; all milestones not started
+Status: M0 in progress
 
 ## 1. Purpose and working rules
 
@@ -25,7 +25,7 @@ The target is a focused offline reference-board application using C++20, Qt 6 Wi
 
 | Milestone | Outcome | Prerequisites | Acceptance ownership | Status |
 | --- | --- | --- | --- | --- |
-| M0 — Foundation | Reproducible cross-platform application skeleton | None | Build prerequisites for all gates | Not started |
+| M0 — Foundation | Reproducible cross-platform application skeleton | None | Build prerequisites for all gates | In progress |
 | M1 — Canvas and import | Usable image board with bounded decoding | M0 | Early A01, A08, A10, A11 checks | Not started |
 | M2 — Editing | Complete v1 board editing and undo/redo | M1 | A01–A02 | Not started |
 | M3 — Durable boards | Portable saving, links, recovery, safe loading | M2 | A03–A07 | Not started |
@@ -41,14 +41,14 @@ Packaging prototypes may start after M0, and file-format design may start during
 
 ### Tasks
 
-- [ ] **M0.01 — Repository skeleton:** Create `app/`, `core/`, `canvas/`, `io/`, `platform/`, `tests/`, `resources/`, `packaging/`, `cmake/`, and `docs/` with a top-level `CMakeLists.txt` (CMake 3.21+) using `add_subdirectory`, plus `CMakePresets.json` for Debug, Release, and sanitizer builds.
+- [x] **M0.01 — Repository skeleton:** Create `app/`, `core/`, `canvas/`, `io/`, `platform/`, `tests/`, `resources/`, `packaging/`, `cmake/`, and `docs/` with a top-level `CMakeLists.txt` (CMake 3.21+) using `add_subdirectory`, plus `CMakePresets.json` for Debug, Release, and sanitizer builds.
 - [ ] **M0.02 — Toolchain:** Pin a publicly obtainable Qt 6 patch in one place shared by all workflows, with matching compilers, build configurations, and architecture targets. Install it in CI through a commit-pinned installer action. Add a scheduled workflow that proposes Qt bumps when a newer stable Qt 6 release appears. Declare the minimum supported Qt in `find_package`. Record CachyOS development versions separately from reproducible CI pins.
-- [ ] **M0.03 — Build boundaries:** Separate app, reusable core-library, and Qt Test targets; register tests with CTest. Set C++20, warnings, and sanitizer options consistently through shared modules in `cmake/`.
-- [ ] **M0.04 — Dependencies:** Select and pin a maintained ZIP library with compatible licensing and CMake integration that provides deflate without Qt's private zlib, writes through `QIODevice` callbacks, and streams single entries (candidates: miniz, minizip-ng), vendored or fetched with `FetchContent` pinned to an exact commit hash. Pin packaging tools to exact versions. Record all Qt modules (including the Qt Image Formats runtime plugins) and third-party dependencies; use no private Qt APIs or Qt Network dependency.
-- [ ] **M0.05 — Application shell:** Launch a QWidget-based main window with an empty QGraphicsView, normal window decorations, application identity (`io.github.cracksoldier.GlacierRef` as Wayland app_id, desktop-file name, and settings identity), and safe shutdown. Wrap all user-visible strings in `tr()` from the start; the v1 UI is English only.
+- [x] **M0.03 — Build boundaries:** Separate app, reusable core-library, and Qt Test targets; register tests with CTest. Set C++20, warnings, and sanitizer options consistently through shared modules in `cmake/`.
+- [x] **M0.04 — Dependencies:** Select and pin a maintained ZIP library with compatible licensing and CMake integration that provides deflate without Qt's private zlib, writes through `QIODevice` callbacks, and streams single entries (candidates: miniz, minizip-ng), vendored or fetched with `FetchContent` pinned to an exact commit hash. Pin packaging tools to exact versions. Record all Qt modules (including the Qt Image Formats runtime plugins) and third-party dependencies; use no private Qt APIs or Qt Network dependency.
+- [x] **M0.05 — Application shell:** Launch a QWidget-based main window with an empty QGraphicsView, normal window decorations, application identity (`io.github.cracksoldier.GlacierRef` as Wayland app_id, desktop-file name, and settings identity), and safe shutdown. Wrap all user-visible strings in `tr()` from the start; the v1 UI is English only.
 - [ ] **M0.06 — CI:** Add GitHub Actions build/test jobs for Linux, Windows, and macOS, running core tests under both an English and a comma-decimal locale (for example `de_AT.UTF-8`). Pin third-party actions, minimize permissions, and keep secrets out of untrusted PR jobs.
-- [ ] **M0.07 — Project documentation:** Add MIT license, README, initial build instructions, CONTRIBUTING, and dependency inventory.
-- [ ] **M0.08 — Architecture contracts:** Document ownership, GUI/worker thread boundaries, document revisions, command handling, the per-session asset store, and platform abstractions.
+- [x] **M0.07 — Project documentation:** Add MIT license, README, initial build instructions, CONTRIBUTING, and dependency inventory.
+- [x] **M0.08 — Architecture contracts:** Document ownership, GUI/worker thread boundaries, document revisions, command handling, the per-session asset store, and platform abstractions.
 - [ ] **M0.09 — Offline audit procedure:** Define a repeatable network audit (for example a network namespace without connectivity plus tracing of socket connect calls) for use from M1 onward.
 
 ### Deliverables
@@ -59,8 +59,8 @@ A buildable application shell, CMake project and presets, CI workflows, dependen
 
 - [ ] A clean checkout builds in Debug and Release on the primary development platform.
 - [ ] Linux, Windows, and macOS CI jobs compile and run the initial meaningful core tests.
-- [ ] The app launches using native Wayland on CachyOS; the test record identifies the Qt platform backend and compositor.
-- [ ] The ZIP-library choice and exact CI toolchain pins are recorded.
+- [x] The app launches using native Wayland on CachyOS; the test record identifies the Qt platform backend and compositor.
+- [x] The ZIP-library choice and exact CI toolchain pins are recorded.
 
 **Demo:** Build from a clean checkout, launch the app on CachyOS Wayland, resize it, and close it normally.
 

@@ -2,7 +2,7 @@
 
 Version: 1.1 • Date: 2026-11-06 • Status: implementation baseline
 
-Changes in 1.1: build system changed from qmake to CMake; Qt version pinning and update-tracking policy defined (§6); application identity, process model, and manual Windows/macOS validation confirmed (§1, §3, §7); review decisions added: session asset store and hash-addressed recovery (§4, §5), SVG policy (§4), view dirty-state rules, item clipboard, window opacity, English-only UI, help link, and editing defaults (§3), GIF/TIFF import (§4), Flatpak delivery (§7, §8), ZIP-library criteria and atomic-save mechanism (§5); performance reference machine and constrained measurement profile, Fedora as secondary Linux validation, and locale-independence testing (§7, §9).
+Changes in 1.1: build system changed from qmake to CMake; Qt version pinning and update-tracking policy defined (§6); application identity, process model, and manual Windows/macOS validation confirmed (§1, §3, §7); review decisions added: session asset store and hash-addressed recovery (§4, §5), SVG policy (§4), view dirty-state rules, item clipboard, window opacity, English-only UI, help link, and editing defaults (§3), GIF/TIFF import (§4), Flatpak delivery (§7, §8), ZIP-library criteria and atomic-save mechanism (§5); performance reference machine and constrained measurement profile, Fedora as secondary Linux validation, and locale-independence testing (§7, §9); explicit import format allowlist (§4).
 
 ## 1. Purpose
 
@@ -138,7 +138,7 @@ Accept local file paths, local `file:` URLs, and clipboard raster pixels. Browse
 
 ### Supported formats
 
-PNG/JPEG/WebP/BMP/GIF/TIFF decode through tested Qt image handlers; WebP and TIFF come from the Qt Image Formats module. SVG uses Qt SVG after enforcing the policy below. Every packaged release must ship and test required image plugins, particularly WebP and TIFF. Animated input (animated GIF, animated WebP, APNG) is imported as a static first frame with a visible notice; multi-page TIFF imports the first page with a visible notice. Animation is not silently promised. AVIF, HEIC, and PSD are planned for later versions.
+PNG/JPEG/WebP/BMP/GIF/TIFF decode through tested Qt image handlers; WebP and TIFF come from the Qt Image Formats module. SVG uses Qt SVG after enforcing the policy below. Every packaged release must ship and test required image plugins, particularly WebP and TIFF. Animated input (animated GIF, animated WebP, APNG) is imported as a static first frame with a visible notice; multi-page TIFF imports the first page with a visible notice. Animation is not silently promised. AVIF, HEIC, and PSD are planned for later versions. Imports use an explicit format allowlist checked against the format detected from file content, independent of which Qt image plugins are installed; extra system plugins (such as KDE's kimageformats) must not silently widen the accepted formats.
 
 Apply EXIF orientation consistently before item-coordinate calculations. Qt applies EXIF orientation reliably for JPEG; verify WebP, PNG, and TIFF orientation with fixtures and add handling where Qt does not apply it. Preserve original file bytes for embedded imports; crop and transforms are separate metadata. Clipboard pixels are encoded as PNG. Convert supported color-profile data to sRGB for display; assume sRGB if absent. Preserve source bytes and alpha. Full monitor-specific proofing is deferred.
 
