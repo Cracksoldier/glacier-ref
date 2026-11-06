@@ -1,0 +1,61 @@
+name: Qt update check
+
+# Weekly check whether a newer stable Qt 6 than the CI pin exists. It never
+# changes the pin itself: it opens an issue, and the bump goes through a
+# normal reviewed change that must pass CI (spec §6).
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read toolchain pins
+        run: grep -E '^[A-Z_]+=' .github/qt-version.env >> "$GITHUB_ENV"
+
+      - name: Query latest Qt release
+        id: qt
+        run: |
+          python3 -m venv "$RUNNER_TEMP/aqt"
+          "$RUNNER_TEMP/aqt/bin/pip" install --quiet "aqtinstall==${AQT_VERSION}"
+          latest="$("$RUNNER_TEMP/aqt/bin/aqt" list-qt linux desktop --latest-version)"
+          echo "Pinned: ${QT_VERSION}, latest: ${latest}"
+          echo "latest=${latest}" >> "$GITHUB_OUTPUT"
+
+      - name: Open an issue when a newer Qt exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.qt.outputs.latest }}
+        run: |
+          newest="$(printf '%s\n%s\n' "$QT_VERSION" "$LATEST" | sort -V | tail -n 1)"
+          if [ -z "$LATEST" ] || [ "$newest" = "$QT_VERSION" ]; then
+            echo "Pinned Qt ${QT_VERSION} is current."
+            exit 0
+          fi
+          title="Qt ${LATEST} is available (pinned: ${QT_VERSION})"
+          open="$(gh issue list --state open --search "in:title \"Qt ${LATEST} is available\"" --json number --jq 'length')"
+          if [ "$open" != "0" ]; then
+            echo "An issue for Qt ${LATEST} is already open."
+            exit 0
+          fi
+          gh issue create --title "$title" --body "$(cat <<BODY
+          A newer stable Qt release is available.
+
+          - Pinned in \`.github/qt-version.env\`: ${QT_VERSION}
+          - Latest: ${LATEST}
+
+          To adopt it, update \`QT_VERSION\` (and the minimum in \`find_package\` if appropriate),
+          record the change in \`docs/TOOLCHAIN.md\`, and merge only after CI passes on all platforms.
+          BODY
+          )"

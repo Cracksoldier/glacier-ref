@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# No secrets are used; untrusted pull requests run with a read-only token.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux (${{ matrix.preset }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [ci-release, ci-asan]
+    env:
+      CC: gcc-14
+      CXX: g++-14
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read toolchain pins
+        run: grep -E '^[A-Z_]+=' .github/qt-version.env >> "$GITHUB_ENV"
+
+      - name: Install build dependencies and test locale
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build locales \
+            libgl1-mesa-dev libxkbcommon-dev libfontconfig1
+          sudo locale-gen de_AT.UTF-8
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          modules: qtimageformats
+          aqtversion: ==${{ env.AQT_VERSION }}
+          cache: true
+          cache-key-prefix: qt-linux-x64-gcc14
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+      - name: Test (default and de_AT locale)
+        run: ctest --preset ${{ matrix.preset }}
+
+  windows:
+    name: Windows (MSVC, ${{ matrix.config }})
+    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [debug, release]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read toolchain pins
+        shell: bash
+        run: grep -E '^[A-Z_]+=' .github/qt-version.env >> "$GITHUB_ENV"
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtimageformats
+          aqtversion: ==${{ env.AQT_VERSION }}
+          cache: true
+          cache-key-prefix: qt-windows-x64-msvc2022
+
+      - name: Configure
+        run: cmake --preset ci-windows
+      - name: Build
+        run: cmake --build --preset ci-windows-${{ matrix.config }}
+      - name: Test (default and de_AT locale)
+        run: ctest --preset ci-windows-${{ matrix.config }}
+
+  macos:
+    name: macOS (arm64)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read toolchain pins
+        run: grep -E '^[A-Z_]+=' .github/qt-version.env >> "$GITHUB_ENV"
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: mac
+          target: desktop
+          arch: clang_64
+          modules: qtimageformats
+          aqtversion: ==${{ env.AQT_VERSION }}
+          cache: true
+          cache-key-prefix: qt-macos-arm64-appleclang
+
+      - name: Configure
+        run: cmake --preset ci-release -DCMAKE_OSX_ARCHITECTURES=arm64
+      - name: Build
+        run: cmake --build --preset ci-release
+      - name: Test (default and de_AT locale)
+        run: ctest --preset ci-release
