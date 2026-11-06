@@ -49,7 +49,7 @@ Packaging prototypes may start after M0, and file-format design may start during
 - [ ] **M0.06 — CI:** Add GitHub Actions build/test jobs for Linux, Windows, and macOS, running core tests under both an English and a comma-decimal locale (for example `de_AT.UTF-8`). Pin third-party actions, minimize permissions, and keep secrets out of untrusted PR jobs.
 - [x] **M0.07 — Project documentation:** Add MIT license, README, initial build instructions, CONTRIBUTING, and dependency inventory.
 - [x] **M0.08 — Architecture contracts:** Document ownership, GUI/worker thread boundaries, document revisions, command handling, the per-session asset store, and platform abstractions.
-- [ ] **M0.09 — Offline audit procedure:** Define a repeatable network audit (for example a network namespace without connectivity plus tracing of socket connect calls) for use from M1 onward.
+- [x] **M0.09 — Offline audit procedure:** Define a repeatable network audit (for example a network namespace without connectivity plus tracing of socket connect calls) for use from M1 onward.
 
 ### Deliverables
 
