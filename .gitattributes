@@ -1,0 +1,2 @@
+# Vendored sources are kept byte-identical to upstream releases.
+third_party/** -text
