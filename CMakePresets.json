@@ -44,10 +44,13 @@
     },
     {
       "name": "windows-msvc",
-      "displayName": "Visual Studio 2022 (x64, multi-config)",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "x64",
+      "displayName": "MSVC x64, Ninja Multi-Config (run from an x64 Developer PowerShell/Command Prompt)",
+      "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl"
+      },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
     },
     {

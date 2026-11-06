@@ -94,6 +94,24 @@ jobs:
           --components qtbase,qtsvg,qtimageformats
           --output "$RUNNER_TEMP/Qt/$QT_VERSION/msvc2022_64"
 
+      # Independent of the Visual Studio release on the image: find the newest
+      # installation with x64 C++ tools and load its compiler environment.
+      - name: Set up MSVC environment
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsArgs = @('-latest', '-products', '*', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64')
+          $vs = & $vswhere @vsArgs -property installationPath
+          if (-not $vs) { throw 'No Visual Studio installation with x64 C++ tools found' }
+          $version = & $vswhere @vsArgs -property catalog_productDisplayVersion
+          Write-Host "Using Visual Studio $version at $vs"
+          $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+              "$($Matches[1])=$($Matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+          }
+
       - name: Use Qt
         shell: bash
         run: |

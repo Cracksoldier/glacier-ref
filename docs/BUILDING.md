@@ -19,7 +19,7 @@ and pass `-DCMAKE_PREFIX_PATH=<qt>/6.12.0/<arch>`.
 | `dev-debug` / `dev-release` | Local Ninja builds |
 | `asan` | Debug with AddressSanitizer + UndefinedBehaviorSanitizer (GCC/Clang) |
 | `ci-release` / `ci-asan` | As above with warnings as errors |
-| `windows-msvc` / `ci-windows` | Visual Studio 2022, x64, multi-config |
+| `windows-msvc` / `ci-windows` | MSVC x64 with Ninja Multi-Config; run from an x64 Developer PowerShell |
 
 Build and test presets have the same names (Windows: `windows-debug`,
 `windows-release`, `ci-windows-debug`, `ci-windows-release`). Build trees go
@@ -63,7 +63,8 @@ pinned Qt via aqtinstall as described above.
 2. Install Qt 6.12.0 for MSVC 2022 64-bit with *Qt Image Formats*, using the
    Qt Online Installer or aqtinstall:
    `aqt install-qt windows desktop 6.12.0 win64_msvc2022_64 -m qtimageformats -O C:\Qt`
-3. From a *Developer PowerShell for VS 2022*:
+3. From an x64 *Developer PowerShell* (or *x64 Native Tools Command Prompt*)
+   for your Visual Studio version (2022 or newer):
 
 ```powershell
 cmake --preset windows-msvc -DCMAKE_PREFIX_PATH=C:\Qt\6.12.0\msvc2022_64

@@ -21,7 +21,7 @@ reads.
 | Job | Runner | Compiler | Architecture |
 | --- | --- | --- | --- |
 | Linux | `ubuntu-24.04` | GCC 14 (`gcc-14`/`g++-14`) | x86_64 |
-| Windows | `windows-2025` | MSVC, Visual Studio 2022 generator | x64 |
+| Windows | `windows-2025` | MSVC from the newest Visual Studio on the image (found with `vswhere`, version printed in the job log), Ninja Multi-Config | x64 |
 | macOS | `macos-15` | Apple Clang (Xcode default of the image) | arm64 |
 
 ### GitHub Actions (pinned by commit SHA)
