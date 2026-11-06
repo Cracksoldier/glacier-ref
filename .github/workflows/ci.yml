@@ -120,6 +120,11 @@ jobs:
           echo "CMAKE_PREFIX_PATH=$prefix" >> "$GITHUB_ENV"
           echo "$prefix/bin" >> "$GITHUB_PATH"
 
+      # Surface MSVC errors and warnings as annotations (readable via the API).
+      - name: Enable MSVC problem matcher
+        shell: bash
+        run: echo "::add-matcher::.github/problem-matchers/msvc.json"
+
       - name: Configure
         run: cmake --preset ci-windows
       - name: Build

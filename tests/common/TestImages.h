@@ -112,7 +112,7 @@ inline QByteArray jpegWithExif(QByteArray jpeg, quint16 orientation)
 {
     const QByteArray payload = QByteArray("Exif\0\0", 6) + exifOrientation(orientation);
     QByteArray segment;
-    segment.append(char(0xFF)).append(char(0xE1));
+    segment.append('\xFF').append('\xE1');
     const int length = int(payload.size()) + 2;
     segment.append(char(length >> 8)).append(char(length & 0xFF));
     segment += payload;
@@ -201,7 +201,7 @@ inline QByteArray tiffPages(int pages)
         entry(278, 3, 1);           // RowsPerStrip
         entry(279, 4, 1);           // StripByteCounts
         appendLE32(t, nextIfd);
-        t.append(char(0x80));       // the pixel
+        t.append('\x80');       // the pixel
         while (nextIfd && t.size() < qsizetype(nextIfd))
             t.append('\0');
         ifdOffset = nextIfd;
