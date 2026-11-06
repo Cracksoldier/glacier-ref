@@ -52,3 +52,15 @@ glacier_add_test(tst_imageprobe
 glacier_add_test(tst_svgvalidator
     SOURCES tst_svgvalidator.cpp
     LIBS glacier::io)
+
+glacier_add_test(tst_batchlayout
+    SOURCES tst_batchlayout.cpp
+    LIBS glacier::core)
+
+glacier_add_test(tst_mimerouter
+    SOURCES tst_mimerouter.cpp
+    LIBS glacier::io)
+
+glacier_add_test(tst_importservice
+    SOURCES tst_importservice.cpp
+    LIBS glacier::io)
