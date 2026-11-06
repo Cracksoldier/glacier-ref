@@ -4,9 +4,14 @@ configure_file(
     @ONLY)
 
 add_library(glacier_core STATIC
+    include/glacier/core/Affine2D.h
     include/glacier/core/AppInfo.h
+    include/glacier/core/BoardDocument.h
     include/glacier/core/Id.h
+    include/glacier/core/Limits.h
+    src/Affine2D.cpp
     src/AppInfo.cpp
+    src/BoardDocument.cpp
     src/Id.cpp)
 add_library(glacier::core ALIAS glacier_core)
 

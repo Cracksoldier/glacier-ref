@@ -25,3 +25,11 @@ glacier_add_test(tst_platforminfo
 glacier_add_test(tst_mainwindow
     SOURCES tst_mainwindow.cpp
     LIBS glacier::app glacier::canvas)
+
+glacier_add_test(tst_affine2d
+    SOURCES tst_affine2d.cpp
+    LIBS glacier::core)
+
+glacier_add_test(tst_boarddocument
+    SOURCES tst_boarddocument.cpp
+    LIBS glacier::core)
