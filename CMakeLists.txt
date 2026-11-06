@@ -11,6 +11,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(GlacierCompilerSettings)
 
 option(GLACIER_BUILD_TESTS "Build the Qt Test suite" ON)
+option(GLACIER_BUILD_TOOLS "Build developer tools (dataset generator, benchmark)" ON)
 
 # The minimum Qt version equals the CI pin (.github/qt-version.env). CI only
 # builds against the pin, so a lower minimum would be untested. Lower it only
@@ -24,6 +25,9 @@ add_subdirectory(io)
 add_subdirectory(platform)
 add_subdirectory(canvas)
 add_subdirectory(app)
+if(GLACIER_BUILD_TOOLS)
+    add_subdirectory(tools)
+endif()
 
 if(GLACIER_BUILD_TESTS)
     find_package(Qt6 6.12 REQUIRED COMPONENTS Test)
