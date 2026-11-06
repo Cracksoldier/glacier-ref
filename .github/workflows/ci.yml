@@ -75,17 +75,32 @@ jobs:
         shell: bash
         run: grep -E '^[A-Z_]+=' .github/qt-version.env >> "$GITHUB_ENV"
 
-      - name: Install Qt
-        uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
+      # aqtinstall 3.3.0 cannot read the per-architecture Windows repository
+      # layout of current Qt releases, so Windows uses our own fetch script
+      # (official download.qt.io metadata, SHA-1 verified). See docs/TOOLCHAIN.md.
+      - name: Cache Qt
+        id: qt-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          version: ${{ env.QT_VERSION }}
-          host: windows
-          target: desktop
-          arch: win64_msvc2022_64
-          modules: qtimageformats
-          aqtversion: ==${{ env.AQT_VERSION }}
-          cache: true
-          cache-key-prefix: qt-windows-x64-msvc2022
+          path: ${{ runner.temp }}/Qt
+          key: qt-windows-x64-msvc2022-${{ env.QT_VERSION }}-${{ hashFiles('tools/ci/fetch_qt_windows.py') }}
+
+      - name: Install Qt
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: >
+          python -I tools/ci/fetch_qt_windows.py
+          --version "$QT_VERSION" --arch win64_msvc2022_64
+          --components qtbase,qtsvg,qtimageformats
+          --output "$RUNNER_TEMP/Qt/$QT_VERSION/msvc2022_64"
+
+      - name: Use Qt
+        shell: bash
+        run: |
+          prefix="$RUNNER_TEMP/Qt/$QT_VERSION/msvc2022_64"
+          echo "QT_ROOT_DIR=$prefix" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$prefix" >> "$GITHUB_ENV"
+          echo "$prefix/bin" >> "$GITHUB_PATH"
 
       - name: Configure
         run: cmake --preset ci-windows

@@ -13,7 +13,8 @@ reads.
 | --- | --- |
 | Qt | 6.12.0 (latest stable when pinned on 2026-11-06) |
 | Qt packages | `linux_gcc_64`, `win64_msvc2022_64`, `clang_64` (macOS), each with `qtimageformats` |
-| aqtinstall | 3.3.0 (via install-qt-action) |
+| aqtinstall | 3.3.0 (via install-qt-action; Linux and macOS only) |
+| Windows Qt install | [`tools/ci/fetch_qt_windows.py`](../tools/ci/fetch_qt_windows.py): components `qtbase`, `qtsvg`, `qtimageformats` |
 | Minimum Qt in `find_package` | 6.12 (equal to the pin; lower only with a CI job that builds against the lower version) |
 | CMake | Minimum 3.21; CI uses the runner image's CMake (version recorded in each job log) |
 
@@ -29,10 +30,29 @@ reads.
 | --- | --- | --- |
 | `actions/checkout` | v7.0.1 | `3d3c42e5aac5ba805825da76410c181273ba90b1` |
 | `jurplel/install-qt-action` | v4.5.0 | `b344308e4483fc892e0d27b3cd1b173ebdd95f06` |
+| `actions/cache` | v6.1.0 | `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` |
 
 install-qt-action itself pins `actions/setup-python` by SHA (v6.3.0,
 `ece7cb06caefa5fff74198d8649806c4678c61a1`). Dependabot proposes SHA updates
 weekly as pull requests.
+
+### Windows: why not aqtinstall
+
+Current Qt releases (seen with 6.11.3 and 6.12.0) split the Windows online
+repository into per-architecture folders, e.g.
+`windows_x86/desktop/qt6_6120/qt6_6120_msvc2022_64/`, and their archives
+unpack directly into the Qt prefix. aqtinstall 3.3.0, the latest release,
+still looks for `qt6_6120/qt6_6120/Updates.xml` and fails. Linux and macOS
+keep the old layout, so they continue to use install-qt-action.
+
+`tools/ci/fetch_qt_windows.py` (standard library only) reads `Updates.xml`
+from download.qt.io, picks only the requested components (excluding
+debug-symbol packages), downloads them (mirrors allowed), verifies each
+archive against the SHA-1 published on download.qt.io (metadata and
+checksums must come from the official host), and extracts them with 7-Zip.
+The result is cached per Qt version and script revision. Use `--dry-run`
+to list the archive URLs. Switch Windows back to install-qt-action once an
+aqtinstall release supports the new layout.
 
 ### Updating Qt
 
