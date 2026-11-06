@@ -1,0 +1,87 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "dev-debug",
+      "displayName": "Debug (Ninja)",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "dev-release",
+      "displayName": "Release (Ninja)",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "asan",
+      "displayName": "Debug with AddressSanitizer + UBSan (GCC/Clang)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "GLACIER_SANITIZE": "address;undefined"
+      }
+    },
+    {
+      "name": "ci-release",
+      "inherits": "dev-release",
+      "cacheVariables": { "GLACIER_WARNINGS_AS_ERRORS": "ON" }
+    },
+    {
+      "name": "ci-asan",
+      "inherits": "asan",
+      "cacheVariables": { "GLACIER_WARNINGS_AS_ERRORS": "ON" }
+    },
+    {
+      "name": "windows-msvc",
+      "displayName": "Visual Studio 2022 (x64, multi-config)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "ci-windows",
+      "inherits": "windows-msvc",
+      "cacheVariables": { "GLACIER_WARNINGS_AS_ERRORS": "ON" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "dev-debug", "configurePreset": "dev-debug" },
+    { "name": "dev-release", "configurePreset": "dev-release" },
+    { "name": "asan", "configurePreset": "asan" },
+    { "name": "ci-release", "configurePreset": "ci-release" },
+    { "name": "ci-asan", "configurePreset": "ci-asan" },
+    { "name": "windows-debug", "configurePreset": "windows-msvc", "configuration": "Debug" },
+    { "name": "windows-release", "configurePreset": "windows-msvc", "configuration": "Release" },
+    { "name": "ci-windows-debug", "configurePreset": "ci-windows", "configuration": "Debug" },
+    { "name": "ci-windows-release", "configurePreset": "ci-windows", "configuration": "Release" }
+  ],
+  "testPresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    { "name": "dev-debug", "inherits": "base", "configurePreset": "dev-debug" },
+    { "name": "dev-release", "inherits": "base", "configurePreset": "dev-release" },
+    { "name": "asan", "inherits": "base", "configurePreset": "asan" },
+    { "name": "ci-release", "inherits": "base", "configurePreset": "ci-release" },
+    { "name": "ci-asan", "inherits": "base", "configurePreset": "ci-asan" },
+    { "name": "windows-debug", "inherits": "base", "configurePreset": "windows-msvc", "configuration": "Debug" },
+    { "name": "windows-release", "inherits": "base", "configurePreset": "windows-msvc", "configuration": "Release" },
+    { "name": "ci-windows-debug", "inherits": "base", "configurePreset": "ci-windows", "configuration": "Debug" },
+    { "name": "ci-windows-release", "inherits": "base", "configurePreset": "ci-windows", "configuration": "Release" }
+  ]
+}

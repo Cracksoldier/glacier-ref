@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Glacier Ref
+GenericName=Reference Board
+Comment=Collect and arrange visual references offline
+Exec=glacier-ref
+Icon=io.github.cracksoldier.GlacierRef
+Terminal=false
+Categories=Graphics;2DGraphics;
+StartupWMClass=io.github.cracksoldier.GlacierRef
