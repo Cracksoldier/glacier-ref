@@ -3,7 +3,7 @@
 Version: 1.1  
 Date: 2026-11-06  
 Source: `GLACIER_REF_SPECIFICATION.md`, version 1.1  
-Status: M0 complete; M1 in progress
+Status: M0 and M1 complete; M2 not started
 
 ## 1. Purpose and working rules
 
@@ -26,7 +26,7 @@ The target is a focused offline reference-board application using C++20, Qt 6 Wi
 | Milestone | Outcome | Prerequisites | Acceptance ownership | Status |
 | --- | --- | --- | --- | --- |
 | M0 — Foundation | Reproducible cross-platform application skeleton | None | Build prerequisites for all gates | Complete |
-| M1 — Canvas and import | Usable image board with bounded decoding | M0 | Early A01, A08, A10, A11 checks | In progress |
+| M1 — Canvas and import | Usable image board with bounded decoding | M0 | Early A01, A08, A10, A11 checks | Complete |
 | M2 — Editing | Complete v1 board editing and undo/redo | M1 | A01–A02 | Not started |
 | M3 — Durable boards | Portable saving, links, recovery, safe loading | M2 | A03–A07 | Not started |
 | M4 — Desktop polish | Reliable minimal UI, native behavior, performance | M3 | A08, A10, A11 | Not started |
@@ -81,7 +81,7 @@ A buildable application shell, CMake project and presets, CI workflows, dependen
 - [x] **M1.09 — Asset store/cache:** Implement the per-session asset store in the application data directory, organized and deduplicated by SHA-256, with free-space checks and cleanup of stores left by ended processes; prototype resolution levels and a bounded LRU decoded-image cache. Keep QPixmap/GUI operations on the GUI thread.
 - [x] **M1.10 — Import resilience:** Enforce source-size and dimension safeguards before large allocation. Report failed files individually. Handle animated input as a static first frame and multi-page TIFF as its first page, each with a notice.
 - [x] **M1.11 — Baseline fixtures:** Prepare licensed or generated standard/stress datasets and malformed-input fixtures. Script the constrained measurement profile (four P-cores, 16 GiB memory, 2560×1440 display) on the reference workstation and record the hardware and initial timing/memory results.
-- [ ] **M1.12 — Wayland feasibility:** Exercise native clipboard, file drop, focus, dialogs, scaling, move/resize, and always-on-top capability behavior.
+- [x] **M1.12 — Wayland feasibility:** Exercise native clipboard, file drop, focus, dialogs, scaling, move/resize, and always-on-top capability behavior.
 
 ### Deliverables
 
@@ -93,7 +93,7 @@ A usable import-and-navigation prototype, reproducible datasets, import error ha
 - [x] Imports remain cancellable; closing a board during decoding causes no crash or stale insertion into another board.
 - [x] Unsupported inputs leave the board usable and do not produce network requests.
 - [x] The standard dataset can be navigated without retaining every original image as a full-resolution decode.
-- [ ] Performance results and compositor limitations are recorded, with corrective work assigned to M4.
+- [x] Performance results and compositor limitations are recorded, with corrective work assigned to M4.
 
 **Demo:** Drop a mixed image batch, paste an image, pan/zoom, select items, cancel a large import, and show the rejection of a URL-only drop.
 
@@ -172,7 +172,7 @@ Documented file format, serializer, linked-asset management, recovery UI, and pe
 
 - [ ] **M4.01 — Minimal UI:** Finish toggleable menus, context menus, discoverable menu access, first-run guidance, Escape behavior, and Help (offline content plus a user-initiated repository link). Ensure window controls remain accessible.
 - [ ] **M4.02 — Preferences:** Implement appearance, the default shortcut table and its customization/conflict reporting, recovery interval, and cache budget using SettingsService.
-- [ ] **M4.03 — Window integration:** Implement PlatformWindowService capability handling, system move/resize, size/state restoration, honest always-on-top status/fallback guidance without compositor-specific integration, and window opacity where supported (hidden on native Wayland).
+- [ ] **M4.03 — Window integration:** (M1.12 finding: KWin ignores the always-on-top hint on Wayland; M1 shows guidance only.) Implement PlatformWindowService capability handling, system move/resize, size/state restoration, honest always-on-top status/fallback guidance without compositor-specific integration, and window opacity where supported (hidden on native Wayland).
 - [ ] **M4.04 — Optional frameless decision:** Enable only after validated native move/resize and recovery from hidden controls; otherwise retain standard decorations and record the decision.
 - [ ] **M4.05 — Desktop validation:** Test CachyOS native Wayland with the recorded reference compositor, plus X11 and a secondary compositor smoke test on the maintainer's Fedora system.
 - [ ] **M4.06 — DPI and input:** Check fractional scaling, mixed-DPI monitors, trackpads, focus, dialogs, Unicode paths, and text/menu shortcut conflicts.
