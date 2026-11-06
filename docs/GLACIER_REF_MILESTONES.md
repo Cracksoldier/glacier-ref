@@ -57,7 +57,7 @@ A buildable application shell, CMake project and presets, CI workflows, dependen
 
 ### Completion criteria
 
-- [ ] A clean checkout builds in Debug and Release on the primary development platform.
+- [x] A clean checkout builds in Debug and Release on the primary development platform.
 - [ ] Linux, Windows, and macOS CI jobs compile and run the initial meaningful core tests.
 - [x] The app launches using native Wayland on CachyOS; the test record identifies the Qt platform backend and compositor.
 - [x] The ZIP-library choice and exact CI toolchain pins are recorded.
