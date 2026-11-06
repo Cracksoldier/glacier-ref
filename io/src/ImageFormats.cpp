@@ -96,6 +96,16 @@ QString mediaType(ImageFormat format)
     return {};
 }
 
+std::optional<ImageFormat> formatFromMediaType(const QString &type)
+{
+    for (ImageFormat f : {ImageFormat::Png, ImageFormat::Jpeg, ImageFormat::Webp, ImageFormat::Bmp,
+                          ImageFormat::Gif, ImageFormat::Tiff, ImageFormat::Svg}) {
+        if (mediaType(f) == type)
+            return f;
+    }
+    return std::nullopt;
+}
+
 QString displayName(ImageFormat format)
 {
     switch (format) {

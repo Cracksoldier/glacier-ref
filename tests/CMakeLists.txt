@@ -64,3 +64,11 @@ glacier_add_test(tst_mimerouter
 glacier_add_test(tst_importservice
     SOURCES tst_importservice.cpp
     LIBS glacier::io)
+
+glacier_add_test(tst_imagecache
+    SOURCES tst_imagecache.cpp
+    LIBS glacier::canvas glacier::core)
+
+glacier_add_test(tst_boardview
+    SOURCES tst_boardview.cpp
+    LIBS glacier::canvas glacier::core)

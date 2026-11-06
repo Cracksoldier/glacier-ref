@@ -19,6 +19,7 @@ std::optional<ImageFormat> detectFormat(const QByteArray &bytes);
 
 QByteArray qtFormatName(ImageFormat format);
 QString mediaType(ImageFormat format);
+std::optional<ImageFormat> formatFromMediaType(const QString &mediaType);
 QString displayName(ImageFormat format);
 
 // File dialog filter, e.g. "Images (*.png *.jpg ...)".

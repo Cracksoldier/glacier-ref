@@ -1,5 +1,7 @@
 # Application library: window classes, testable without the executable.
 add_library(glacier_app STATIC
+    AppServices.h
+    AppServices.cpp
     MainWindow.h
     MainWindow.cpp)
 add_library(glacier::app ALIAS glacier_app)
@@ -7,8 +9,8 @@ add_library(glacier::app ALIAS glacier_app)
 glacier_configure_target(glacier_app)
 target_include_directories(glacier_app PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(glacier_app
-    PUBLIC Qt6::Widgets
-    PRIVATE glacier::core glacier::canvas glacier::platform)
+    PUBLIC glacier::core glacier::io glacier::canvas Qt6::Widgets
+    PRIVATE glacier::platform)
 
 qt_add_executable(glacier-ref main.cpp)
 glacier_configure_target(glacier-ref)

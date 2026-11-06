@@ -1,3 +1,4 @@
+#include "AppServices.h"
 #include "MainWindow.h"
 
 #include "glacier/core/AppInfo.h"
@@ -6,6 +7,7 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QIcon>
+#include <QMessageBox>
 #include <QStringList>
 #include <QTextStream>
 
@@ -46,7 +48,19 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    glacier::MainWindow window;
-    window.show();
-    return QApplication::exec();
+    QString error;
+    const std::unique_ptr<glacier::AppServices> services = glacier::AppServices::create({}, &error);
+    if (!services) {
+        QMessageBox::critical(nullptr, glacier::app_info::displayName(),
+                              QApplication::translate("main", "Glacier Ref could not start: %1").arg(error));
+        return 1;
+    }
+
+    int status = 0;
+    {
+        glacier::MainWindow window(*services); // destroyed before the services
+        window.show();
+        status = QApplication::exec();
+    }
+    return status;
 }
