@@ -30,6 +30,14 @@ glacier_add_test(tst_links
     SOURCES tst_links.cpp
     LIBS glacier::app glacier::canvas glacier::editing glacier::persistence)
 
+glacier_add_test(tst_settings
+    SOURCES tst_settings.cpp
+    LIBS glacier::app)
+
+glacier_add_test(tst_diagnostics
+    SOURCES tst_diagnostics.cpp
+    LIBS glacier::app)
+
 glacier_add_test(tst_affine2d
     SOURCES tst_affine2d.cpp
     LIBS glacier::core)

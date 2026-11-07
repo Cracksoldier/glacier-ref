@@ -8,6 +8,7 @@
 #include "glacier/core/AppInfo.h"
 #include "glacier/core/BatchLayout.h"
 #include "glacier/core/BoardDocument.h"
+#include "glacier/core/Diagnostics.h"
 #include "glacier/core/LinkPaths.h"
 #include "glacier/core/SessionAssetStore.h"
 #include "glacier/editing/ClipboardFragment.h"
@@ -125,7 +126,10 @@ MainWindow::MainWindow(AppServices &services, QWidget *parent)
     // Recovery snapshots of dirty boards (spec §5): at most one per interval.
     m_recoveryTimer = new QTimer(this);
     m_recoveryTimer->setSingleShot(true);
-    m_recoveryTimer->setInterval(AppServices::recoveryIntervalSeconds() * 1000);
+    m_recoveryTimer->setInterval(services.settings()->recoveryIntervalSeconds() * 1000);
+    connect(services.settings(), &SettingsService::recoveryChanged, this, [this] {
+        m_recoveryTimer->setInterval(m_services.settings()->recoveryIntervalSeconds() * 1000);
+    });
     connect(m_recoveryTimer, &QTimer::timeout, this, &MainWindow::writeRecoverySnapshot);
     connect(m_document, &BoardDocument::revisionChanged, this, &MainWindow::scheduleRecoverySnapshot);
     connect(m_controller, &CommandController::dirtyChanged, this, [this](bool dirty) {
@@ -622,6 +626,8 @@ void MainWindow::applyLoaded(const QString &path, persistence::LoadResult result
             result.content.reset();
     }
     if (!result.content || !error.isEmpty()) {
+        qCWarning(lcFiles, "%s failed for \"%s\": %s", recovered ? "recovery" : "opening", qPrintable(name),
+                  qPrintable(error));
         updateActionStates();
         QMessageBox box(QMessageBox::Critical, recovered ? tr("Recover Board") : tr("Open Board"),
                         recovered ? tr("“%1” could not be recovered.").arg(name)
@@ -636,6 +642,8 @@ void MainWindow::applyLoaded(const QString &path, persistence::LoadResult result
         return;
     }
 
+    qCInfo(lcFiles, "%s \"%s\": %lld items, %lld assets", recovered ? "recovered" : "opened", qPrintable(name),
+           qlonglong(m_document->itemCount()), qlonglong(m_document->assetCount()));
     m_closeIfLoadFails = false;
     m_controller->resetHistory();
     m_filePath = path;
@@ -875,6 +883,12 @@ void MainWindow::finishSave(const persistence::SaveResult &result, const QString
                             std::shared_ptr<persistence::DocumentLock> newLock, std::function<void(bool)> done)
 {
     m_saving = false;
+    if (result.ok)
+        qCInfo(lcFiles, "saved \"%s\" (%lld bytes)", qPrintable(QFileInfo(path).fileName()),
+               qlonglong(result.fingerprint.size));
+    else
+        qCWarning(lcFiles, "saving \"%s\" failed: %s", qPrintable(QFileInfo(path).fileName()),
+                  qPrintable(result.error));
     if (result.ok) {
         if (newLock) {
             m_lock = std::move(newLock); // releases the previous file's lock
@@ -1100,7 +1114,7 @@ void MainWindow::writeRecoverySnapshot()
         QString error;
         const bool ok = recovery->writeSnapshot(request, *store, &error);
         if (!ok)
-            qWarning("glacier: recovery snapshot failed: %s", qPrintable(error));
+            qCWarning(lcRecovery, "recovery snapshot failed: %s", qPrintable(error));
         if (closed->load()) // the window closed meanwhile
             recovery->discardDocument(request.key);
         return ok;

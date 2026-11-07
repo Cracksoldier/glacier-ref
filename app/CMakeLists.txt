@@ -2,12 +2,16 @@
 add_library(glacier_app STATIC
     AppServices.h
     AppServices.cpp
+    DiagnosticLog.h
+    DiagnosticLog.cpp
     MainWindow.h
     MainWindow.cpp
     NoteStyleDialog.h
     NoteStyleDialog.cpp
     RecoveryDialog.h
-    RecoveryDialog.cpp)
+    RecoveryDialog.cpp
+    SettingsService.h
+    SettingsService.cpp)
 add_library(glacier::app ALIAS glacier_app)
 
 glacier_configure_target(glacier_app)

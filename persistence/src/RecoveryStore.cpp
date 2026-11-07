@@ -243,6 +243,12 @@ void RecoveryStore::discardDocument(const Id &key)
     collectPool();
 }
 
+void RecoveryStore::setBudgetBytes(qint64 bytes)
+{
+    QMutexLocker locker(&m_mutex);
+    m_options.budgetBytes = bytes;
+}
+
 void RecoveryStore::cleanUp()
 {
     QMutexLocker locker(&m_mutex);

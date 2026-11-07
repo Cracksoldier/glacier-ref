@@ -8,6 +8,7 @@ add_library(glacier_core STATIC
     include/glacier/core/AppInfo.h
     include/glacier/core/BatchLayout.h
     include/glacier/core/BoardDocument.h
+    include/glacier/core/Diagnostics.h
     include/glacier/core/Id.h
     include/glacier/core/Limits.h
     include/glacier/core/LinkPaths.h
@@ -16,6 +17,7 @@ add_library(glacier_core STATIC
     src/AppInfo.cpp
     src/BatchLayout.cpp
     src/BoardDocument.cpp
+    src/Diagnostics.cpp
     src/Id.cpp
     src/LinkPaths.cpp
     src/SessionAssetStore.cpp)

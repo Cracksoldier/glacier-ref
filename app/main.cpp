@@ -1,8 +1,10 @@
 #include "AppServices.h"
+#include "DiagnosticLog.h"
 #include "MainWindow.h"
 #include "RecoveryDialog.h"
 
 #include "glacier/core/AppInfo.h"
+#include "glacier/core/Diagnostics.h"
 #include "glacier/platform/PlatformInfo.h"
 
 #include <QApplication>
@@ -50,6 +52,11 @@ int main(int argc, char *argv[])
         QTextStream(stdout) << glacier::platform::collectPlatformInfo().toText();
         return 0;
     }
+
+    // Local diagnostics (M4.09): redacted, stderr plus a small per-process log.
+    glacier::diagnostics::installLog({glacier::AppServices::logDirectory()});
+    qCInfo(lcApp, "%s %s, Qt %s, platform %s", qPrintable(glacier::app_info::displayName()),
+           qPrintable(glacier::app_info::version()), qVersion(), qPrintable(QGuiApplication::platformName()));
 
     QString error;
     const std::unique_ptr<glacier::AppServices> services = glacier::AppServices::create({}, &error);

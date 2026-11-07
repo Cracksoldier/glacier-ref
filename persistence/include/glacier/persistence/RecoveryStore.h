@@ -102,6 +102,8 @@ public:
 
     // Applies the budget and removes unreferenced pool files (startup).
     void cleanUp();
+    // Changes the storage budget (Preferences); applied with the next snapshot.
+    void setBudgetBytes(qint64 bytes);
 
     // Total bytes used (manifests and pool), for tests and diagnostics.
     static qint64 usedBytes(const QString &rootDir);
