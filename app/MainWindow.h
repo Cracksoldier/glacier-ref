@@ -4,18 +4,22 @@
 #include "glacier/io/ImportService.h"
 #include "glacier/persistence/BoardSerializer.h"
 #include "glacier/persistence/DocumentLock.h"
+#include "glacier/persistence/RecoveryStore.h"
 
 #include <QHash>
 #include <QKeySequence>
 #include <QMainWindow>
 #include <QPointer>
 
+#include <atomic>
 #include <functional>
 #include <memory>
+#include <optional>
 
 class QAction;
 class QMenu;
 class QProgressDialog;
+class QTimer;
 class QMimeData;
 
 namespace glacier {
@@ -67,6 +71,16 @@ public:
     static MainWindow *openBoard(AppServices &services, const QString &path, MainWindow *current);
     // Loads a board into this window (asynchronous).
     void loadBoard(const QString &path);
+    // Opens a board from recovery data (spec §5): dirty, linked to its
+    // original file if it had one. Reuses `current` if it is reusable.
+    static MainWindow *recoverBoard(AppServices &services, const persistence::RecoveryStore::Entry &entry,
+                                    MainWindow *current);
+    void loadRecovery(const persistence::RecoveryStore::Entry &entry);
+    // Writes a recovery snapshot now if the board changed since the last one
+    // (normally run by the recovery timer).
+    void writeRecoverySnapshot();
+    Id recoveryKey() const { return m_recoveryKey; }
+
     // Save: to the current file; untitled or read-only boards ask for a file.
     void save(std::function<void(bool)> done = {});
     // Save As without a dialog.
@@ -89,6 +103,7 @@ signals:
     void boardLoaded(bool ok);
     void saveFinished(bool ok);
     void linksChecked(); // a Reload or Locate check finished (tests)
+    void recoverySnapshotWritten(bool ok);
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -110,7 +125,11 @@ private:
                     const persistence::BoardContent &content, editing::CommandController::Marker marker,
                     std::shared_ptr<persistence::DocumentLock> newLock, std::function<void(bool)> done);
     void applyLoaded(const QString &path, persistence::LoadResult result,
-                     std::shared_ptr<persistence::DocumentLock::Result> lock);
+                     std::shared_ptr<persistence::DocumentLock::Result> lock,
+                     std::optional<persistence::RecoveryStore::Entry> recovered = {});
+    void scheduleRecoverySnapshot();
+    void discardRecovery(); // the board is clean or was closed: drop its snapshots
+    void prepareToClose();
     void showReadOnlyNotice(const persistence::DocumentLock::Holder &holder, const QString &reason);
     void editBoardTitle();
     void handleDrop(const QMimeData *mime, QPointF scenePos);
@@ -167,6 +186,15 @@ private:
     bool m_closeConfirmed = false;
     bool m_closeIfLoadFails = false; // a window opened just for loading a board
     QHash<Id, persistence::LinkCheck> m_linkStates; // linked assets; Available when absent
+
+    // Recovery snapshots (spec §5, M3.09).
+    QTimer *m_recoveryTimer = nullptr;
+    Id m_recoveryKey = Id::generate(); // this window's snapshots
+    bool m_snapshotInFlight = false;
+    bool m_discardAfterSnapshot = false;
+    std::optional<quint64> m_snapshotRevision; // document revision of the last snapshot
+    std::optional<persistence::RecoveryStore::Entry> m_recoveredFrom; // dropped once replaced
+    std::shared_ptr<std::atomic_bool> m_recoveryClosed = std::make_shared<std::atomic_bool>(false);
 };
 
 } // namespace glacier

@@ -43,6 +43,7 @@
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QSettings>
+#include <QTimer>
 #include <QUrl>
 #include <QtConcurrent/QtConcurrentRun>
 
@@ -120,6 +121,19 @@ MainWindow::MainWindow(AppServices &services, QWidget *parent)
     connect(m_document, &BoardDocument::changed, this, &MainWindow::updateActionStates);
     connect(m_view, &canvas::BoardView::modeChanged, this, &MainWindow::updateActionStates);
     connect(m_controller, &CommandController::dirtyChanged, this, &MainWindow::updateTitle);
+
+    // Recovery snapshots of dirty boards (spec §5): at most one per interval.
+    m_recoveryTimer = new QTimer(this);
+    m_recoveryTimer->setSingleShot(true);
+    m_recoveryTimer->setInterval(AppServices::recoveryIntervalSeconds() * 1000);
+    connect(m_recoveryTimer, &QTimer::timeout, this, &MainWindow::writeRecoverySnapshot);
+    connect(m_document, &BoardDocument::revisionChanged, this, &MainWindow::scheduleRecoverySnapshot);
+    connect(m_controller, &CommandController::dirtyChanged, this, [this](bool dirty) {
+        if (dirty)
+            scheduleRecoverySnapshot();
+        else
+            discardRecovery();
+    });
     updateActionStates();
 }
 
@@ -588,10 +602,12 @@ void MainWindow::loadBoard(const QString &path)
 }
 
 void MainWindow::applyLoaded(const QString &path, persistence::LoadResult result,
-                             std::shared_ptr<persistence::DocumentLock::Result> lock)
+                             std::shared_ptr<persistence::DocumentLock::Result> lock,
+                             std::optional<persistence::RecoveryStore::Entry> recovered)
 {
     m_loading = false;
-    const QString name = QFileInfo(path).fileName();
+    const QString name = recovered ? (recovered->title.isEmpty() ? tr("Untitled") : recovered->title)
+                                   : QFileInfo(path).fileName();
     QString error = result.error;
     if (result.content && !isReusable())
         error = tr("the window is no longer empty"); // e.g. an import finished meanwhile
@@ -604,7 +620,9 @@ void MainWindow::applyLoaded(const QString &path, persistence::LoadResult result
     }
     if (!result.content || !error.isEmpty()) {
         updateActionStates();
-        QMessageBox box(QMessageBox::Critical, tr("Open Board"), tr("“%1” could not be opened.").arg(name),
+        QMessageBox box(QMessageBox::Critical, recovered ? tr("Recover Board") : tr("Open Board"),
+                        recovered ? tr("“%1” could not be recovered.").arg(name)
+                                  : tr("“%1” could not be opened.").arg(name),
                         QMessageBox::Ok, this);
         box.setObjectName(u"openFailedBox"_s);
         box.setInformativeText(error.isEmpty() ? tr("Unknown error.") : error);
@@ -619,7 +637,10 @@ void MainWindow::applyLoaded(const QString &path, persistence::LoadResult result
     m_controller->resetHistory();
     m_filePath = path;
     m_fingerprint = result.fingerprint;
-    if (lock->status == persistence::DocumentLock::Status::Acquired) {
+    if (!lock) { // a recovered board that was never saved
+        m_lock.reset();
+        m_readOnly = false;
+    } else if (lock->status == persistence::DocumentLock::Status::Acquired) {
         m_lock = std::shared_ptr<persistence::DocumentLock>(std::move(lock->lock));
         m_readOnly = false;
     } else {
@@ -631,11 +652,20 @@ void MainWindow::applyLoaded(const QString &path, persistence::LoadResult result
         setLinkState(it.key(), it.value());
     m_view->setZoom(result.content->zoom, QPointF(m_view->viewport()->rect().center()));
     m_view->centerOn(result.content->viewCenter);
-    QSettings().setValue(LastBoardDirectoryKey, QFileInfo(path).absolutePath());
+    if (!path.isEmpty())
+        QSettings().setValue(LastBoardDirectoryKey, QFileInfo(path).absolutePath());
+    if (recovered) {
+        // Recovered boards are dirty until saved (spec §5); the old recovery
+        // data is dropped once this window has its own snapshot.
+        m_controller->markNeverClean();
+        m_recoveredFrom = recovered;
+        writeRecoverySnapshot();
+        m_view->showToast(tr("Unsaved changes were recovered. Save the board to keep them."));
+    }
     updateTitle();
     updateActionStates();
     emit boardLoaded(true);
-    if (m_readOnly)
+    if (m_readOnly && lock)
         showReadOnlyNotice(lock->holder, lock->status == persistence::DocumentLock::Status::Unavailable
                                              ? lock->error : QString());
     showLinkSummary();
@@ -922,6 +952,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
         return;
     }
     if (m_closeConfirmed || !m_controller->isDirty()) {
+        prepareToClose();
         event->accept();
         return;
     }
@@ -933,6 +964,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
     box.setDefaultButton(QMessageBox::Save);
     const int answer = box.exec();
     if (answer == QMessageBox::Discard) {
+        prepareToClose();
         event->accept();
         return;
     }
@@ -976,6 +1008,130 @@ void MainWindow::importFolderFromDialog()
         return;
     settings.setValue(u"import/lastDirectory"_s, folder);
     importPlan(io::planForPaths({folder}), m_view->viewCenter());
+}
+
+// --- Recovery ------------------------------------------------------------------------
+
+MainWindow *MainWindow::recoverBoard(AppServices &services, const persistence::RecoveryStore::Entry &entry,
+                                     MainWindow *current)
+{
+    MainWindow *target = current && current->isReusable() ? current : nullptr;
+    if (!target) {
+        target = new MainWindow(services);
+        target->setAttribute(Qt::WA_DeleteOnClose);
+        target->m_closeIfLoadFails = true;
+        target->show();
+    }
+    target->loadRecovery(entry);
+    return target;
+}
+
+void MainWindow::loadRecovery(const persistence::RecoveryStore::Entry &entry)
+{
+    m_loading = true;
+    updateActionStates();
+    // The original file is locked as on a normal open; the crashed session's
+    // lock is stale and is taken over.
+    std::shared_ptr<persistence::DocumentLock::Result> lock;
+    if (!entry.boardPath.isEmpty())
+        lock = std::make_shared<persistence::DocumentLock::Result>(persistence::DocumentLock::acquire(entry.boardPath));
+    auto *watcher = new QFutureWatcher<persistence::LoadResult>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, entry, lock] {
+        watcher->deleteLater();
+        applyLoaded(entry.boardPath, watcher->result(), lock, entry);
+    });
+    const auto store = m_services.store();
+    const Limits limits = m_services.limits();
+    const QString root = m_services.recoveryRoot();
+    watcher->setFuture(QtConcurrent::run(m_services.pool(), [root, entry, store, limits] {
+        return persistence::RecoveryStore::loadSnapshot(root, entry, *store, limits);
+    }));
+}
+
+void MainWindow::scheduleRecoverySnapshot()
+{
+    if (m_services.recovery() && m_controller->isDirty() && !m_loading && !m_recoveryTimer->isActive())
+        m_recoveryTimer->start();
+}
+
+void MainWindow::writeRecoverySnapshot()
+{
+    const std::shared_ptr<persistence::RecoveryStore> recovery = m_services.recovery();
+    const quint64 revision = m_document->revision();
+    if (!recovery || m_snapshotInFlight || !m_controller->isDirty() || m_snapshotRevision == revision)
+        return;
+    // A text edit in progress is not committed by a timer; the snapshot holds
+    // the board as it is.
+    persistence::RecoveryStore::SnapshotRequest request;
+    request.key = m_recoveryKey;
+    request.content = currentContent();
+    request.boardPath = m_filePath;
+    request.baseFingerprint = m_fingerprint;
+    m_snapshotInFlight = true;
+    auto *watcher = new QFutureWatcher<bool>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, revision] {
+        watcher->deleteLater();
+        m_snapshotInFlight = false;
+        const bool ok = watcher->result();
+        if (ok) {
+            m_snapshotRevision = revision;
+            if (m_recoveredFrom) {
+                persistence::RecoveryStore::discardEntry(*m_recoveredFrom); // replaced by our snapshot
+                m_recoveredFrom.reset();
+            }
+        }
+        if (m_discardAfterSnapshot) {
+            m_discardAfterSnapshot = false;
+            if (!m_controller->isDirty())
+                discardRecovery();
+        }
+        emit recoverySnapshotWritten(ok);
+        if (m_controller->isDirty() && m_document->revision() != revision)
+            scheduleRecoverySnapshot();
+    });
+    const auto store = m_services.store();
+    const auto closed = m_recoveryClosed;
+    watcher->setFuture(QtConcurrent::run(m_services.pool(), [recovery, request, store, closed] {
+        if (closed->load())
+            return false;
+        QString error;
+        const bool ok = recovery->writeSnapshot(request, *store, &error);
+        if (!ok)
+            qWarning("glacier: recovery snapshot failed: %s", qPrintable(error));
+        if (closed->load()) // the window closed meanwhile
+            recovery->discardDocument(request.key);
+        return ok;
+    }));
+}
+
+void MainWindow::discardRecovery()
+{
+    m_recoveryTimer->stop();
+    if (m_snapshotInFlight) {
+        m_discardAfterSnapshot = true;
+        return;
+    }
+    if (const auto recovery = m_services.recovery())
+        recovery->discardDocument(m_recoveryKey);
+    m_snapshotRevision.reset();
+    if (m_recoveredFrom) {
+        persistence::RecoveryStore::discardEntry(*m_recoveredFrom);
+        m_recoveredFrom.reset();
+    }
+}
+
+void MainWindow::prepareToClose()
+{
+    // Normal closure (spec §5): the chosen action is done, so the board's
+    // recovery data goes, including what it was recovered from.
+    m_recoveryClosed->store(true);
+    m_recoveryTimer->stop();
+    if (const auto recovery = m_services.recovery())
+        recovery->discardDocument(m_recoveryKey);
+    if (m_recoveredFrom) {
+        persistence::RecoveryStore::discardEntry(*m_recoveredFrom);
+        m_recoveredFrom.reset();
+    }
 }
 
 // --- Linked assets -------------------------------------------------------------------

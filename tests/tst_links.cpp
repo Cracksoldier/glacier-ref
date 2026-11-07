@@ -152,7 +152,7 @@ private slots:
     {
         QStandardPaths::setTestModeEnabled(true);
         qRegisterMetaType<io::ImportBatchResult>();
-        m_services = AppServices::create({m_root.path(), {}});
+        m_services = AppServices::create({m_root.path(), {}, {}});
         QVERIFY(m_services);
     }
 

@@ -1,5 +1,6 @@
 #include "AppServices.h"
 #include "MainWindow.h"
+#include "RecoveryDialog.h"
 
 #include "glacier/core/AppInfo.h"
 #include "glacier/platform/PlatformInfo.h"
@@ -61,6 +62,17 @@ int main(int argc, char *argv[])
     auto *window = new glacier::MainWindow(*services);
     window->setAttribute(Qt::WA_DeleteOnClose); // more windows via File > New Window
     window->show();
+
+    // Boards with unsaved changes from sessions that ended abnormally (spec §5).
+    if (const auto recoverable = services->recoverable(); !recoverable.isEmpty()) {
+        glacier::RecoveryDialog dialog(
+            recoverable,
+            [&](const glacier::RecoveryDialog::Entry &e) { glacier::MainWindow::recoverBoard(*services, e, window); },
+            [&](const glacier::RecoveryDialog::Entry &e) { glacier::MainWindow::openBoard(*services, e.boardPath, window); },
+            [](const glacier::RecoveryDialog::Entry &e) { glacier::persistence::RecoveryStore::discardEntry(e); },
+            window);
+        dialog.exec();
+    }
     // The first board loads into the first window, others into new windows.
     for (const QString &board : parser.positionalArguments())
         glacier::MainWindow::openBoard(*services, board, window);
@@ -68,9 +80,16 @@ int main(int argc, char *argv[])
 
     // Windows must be gone before the services they use.
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    bool allClosed = true;
     const auto remaining = QApplication::topLevelWidgets();
-    for (QWidget *widget : remaining)
-        if (qobject_cast<glacier::MainWindow *>(widget))
+    for (QWidget *widget : remaining) {
+        if (qobject_cast<glacier::MainWindow *>(widget)) {
+            allClosed = false; // not closed normally: keep its recovery data
             delete widget;
+        }
+    }
+    // Normal exit with every window closed: nothing left to recover.
+    if (allClosed && services->recovery())
+        services->recovery()->removeSession();
     return status;
 }

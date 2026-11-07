@@ -141,7 +141,7 @@ int main(int argc, char *argv[])
     }
 
     QString error;
-    auto services = AppServices::create({storeDir.path(), {}}, &error);
+    auto services = AppServices::create({storeDir.path(), {}, {}}, &error);
     if (!services) {
         err << "cannot start: " << error << Qt::endl;
         return 2;

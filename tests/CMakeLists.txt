@@ -80,6 +80,20 @@ target_compile_definitions(tst_documentlock PRIVATE
     GLACIER_LOCKHOLDER_PATH="$<TARGET_FILE:glacier_test_lockholder>")
 add_dependencies(tst_documentlock glacier_test_lockholder)
 
+# Writes recovery snapshots and waits to be killed (tst_recovery).
+qt_add_executable(glacier_test_recoverywriter helpers/recoverywriter.cpp)
+glacier_configure_target(glacier_test_recoverywriter)
+target_include_directories(glacier_test_recoverywriter PRIVATE "${PROJECT_SOURCE_DIR}/tests/common")
+target_link_libraries(glacier_test_recoverywriter PRIVATE glacier::persistence Qt6::Gui)
+set_target_properties(glacier_test_recoverywriter PROPERTIES MACOSX_BUNDLE OFF WIN32_EXECUTABLE OFF)
+
+glacier_add_test(tst_recovery
+    SOURCES tst_recovery.cpp
+    LIBS glacier::persistence)
+target_compile_definitions(tst_recovery PRIVATE
+    GLACIER_RECOVERYWRITER_PATH="$<TARGET_FILE:glacier_test_recoverywriter>")
+add_dependencies(tst_recovery glacier_test_recoverywriter)
+
 glacier_add_test(tst_linkpaths
     SOURCES tst_linkpaths.cpp
     LIBS glacier::core)

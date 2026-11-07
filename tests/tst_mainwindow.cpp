@@ -1,8 +1,10 @@
 #include "GlacierTestMain.h"
+#include "TestBoardFiles.h"
 #include "TestImages.h"
 
 #include "AppServices.h"
 #include "MainWindow.h"
+#include "RecoveryDialog.h"
 #include "glacier/canvas/BoardScene.h"
 #include "glacier/canvas/BoardView.h"
 #include "glacier/core/BoardDocument.h"
@@ -12,6 +14,7 @@
 #include "glacier/io/MimeRouter.h"
 #include "glacier/persistence/BoardSerializer.h"
 #include "glacier/persistence/DocumentLock.h"
+#include "glacier/persistence/RecoveryStore.h"
 
 #include <QAbstractButton>
 #include <QAction>
@@ -108,7 +111,7 @@ private slots:
     {
         QStandardPaths::setTestModeEnabled(true); // settings and app data stay out of the user's profile
         qRegisterMetaType<io::ImportBatchResult>();
-        m_services = AppServices::create({m_root.path(), {}});
+        m_services = AppServices::create({m_root.path(), {}, {}});
         QVERIFY(m_services);
     }
 
@@ -514,6 +517,115 @@ private slots:
         QVERIFY(window.controller()->isDirty());
         window.action(u"Undo"_s)->trigger();
         QCOMPARE(window.document()->title(), QString());
+    }
+
+    // --- Recovery (M3.09-M3.10) -------------------------------------------
+
+    void recoverySnapshotsFollowTheBoard()
+    {
+        QTemporaryDir dir;
+        auto window = std::make_unique<MainWindow>(*m_services);
+        const QString snapshots = m_services->recovery()->sessionDir() + u'/' + window->recoveryKey().toString();
+        QSignalSpy written(window.get(), &MainWindow::recoverySnapshotWritten);
+        window->writeRecoverySnapshot(); // clean: nothing to protect
+        QVERIFY(!QDir(snapshots).exists());
+
+        QVERIFY(importThree(*window));
+        window->writeRecoverySnapshot();
+        QVERIFY(written.wait(30000));
+        QVERIFY(written.first().first().toBool());
+        QCOMPARE(QDir(snapshots).entryList({u"snapshot-*.json"_s}, QDir::Files).size(), 1);
+        window->writeRecoverySnapshot(); // unchanged since: no new snapshot
+        QVERIFY(!written.wait(200));
+
+        // Saving makes the board clean: its recovery data goes.
+        QVERIFY(saveAndWait(*window, dir.filePath(u"saved.glacierref"_s)));
+        QVERIFY(!QDir(snapshots).exists());
+
+        // Closing without saving (Discard) removes it too.
+        QVERIFY(window->controller()->run(ops::createNote(*window->document(), {0, 0}, u"x"_s), u"Note"_s));
+        window->writeRecoverySnapshot();
+        QVERIFY(written.wait(30000));
+        QVERIFY(QDir(snapshots).exists());
+        answer(u"unsavedChangesBox"_s, QMessageBox::Discard);
+        QVERIFY(window->close());
+        QVERIFY(!QDir(snapshots).exists());
+    }
+
+    // A06 in the app: a recovered board opens dirty, linked to its file.
+    void recoveredBoardOpensDirty()
+    {
+        QTemporaryDir dir;
+        const QString original = dir.filePath(u"original.glacierref"_s);
+        {
+            MainWindow saved(*m_services);
+            QVERIFY(importThree(saved));
+            QVERIFY(saveAndWait(saved, original));
+        }
+        // A session that ended without closing its windows.
+        persistence::RecoveryStore::SnapshotRequest request;
+        request.key = Id::generate();
+        request.content = test::richBoard(*m_services->store());
+        request.content.metadata.title = u"unsaved work"_s;
+        request.boardPath = original;
+        request.baseFingerprint = persistence::FileFingerprint::of(original);
+        {
+            auto crashed = persistence::RecoveryStore::create({m_services->recoveryRoot()});
+            QVERIFY(crashed);
+            QVERIFY(crashed->writeSnapshot(request, *m_services->store()));
+        } // its lock is released, as if the process had died
+        const auto entries = persistence::RecoveryStore::findRecoverable(m_services->recoveryRoot());
+        QCOMPARE(entries.size(), 1);
+
+        MainWindow window(*m_services);
+        QSignalSpy loaded(&window, &MainWindow::boardLoaded);
+        QSignalSpy written(&window, &MainWindow::recoverySnapshotWritten);
+        QCOMPARE(MainWindow::recoverBoard(*m_services, entries.first(), &window), &window);
+        QVERIFY(loaded.wait(30000));
+        QVERIFY(loaded.first().first().toBool());
+        QVERIFY(window.controller()->isDirty());
+        QVERIFY(window.isWindowModified());
+        QCOMPARE(window.filePath(), original);
+        QVERIFY(!window.isReadOnly());
+        QCOMPARE(window.document()->title(), u"unsaved work"_s);
+        QCOMPARE(test::sorted(persistence::BoardContent{window.document()->metadata(), window.document()->snapshotAll(),
+                                           window.document()->view(), {}, 1.0})
+                     .snapshot,
+                 test::sorted(request.content).snapshot);
+        window.controller()->undoStack()->setIndex(0);
+        QVERIFY(window.controller()->isDirty()); // dirty until saved
+
+        // Once the new window has its own snapshot, the old data is gone.
+        QTRY_VERIFY_WITH_TIMEOUT(!written.isEmpty(), 30000);
+        QVERIFY(!QFile::exists(entries.first().snapshotPath));
+        QVERIFY(persistence::RecoveryStore::findRecoverable(m_services->recoveryRoot()).isEmpty());
+
+        // Saving goes to the original (whose content was unchanged meanwhile).
+        QSignalSpy saved(&window, &MainWindow::saveFinished);
+        window.save();
+        QVERIFY(saved.wait(30000));
+        QVERIFY(saved.first().first().toBool());
+        QVERIFY(!window.controller()->isDirty());
+    }
+
+    void recoveryDialogOffersEachBoard()
+    {
+        persistence::RecoveryStore::Entry named;
+        named.title = u"Board A"_s;
+        named.boardPath = u"/tmp/a.glacierref"_s;
+        named.time = QDateTime::currentDateTimeUtc();
+        persistence::RecoveryStore::Entry unnamed;
+        unnamed.time = named.time;
+        QStringList calls;
+        RecoveryDialog dialog(
+            {named, unnamed}, [&calls](const auto &e) { calls.append(u"recover "_s + e.title); },
+            [&calls](const auto &e) { calls.append(u"original "_s + e.title); },
+            [&calls](const auto &e) { calls.append(u"discard "_s + e.title); });
+        QCOMPARE(dialog.remaining(), 2);
+        dialog.recoverAll();
+        QCOMPARE(calls, (QStringList{u"recover Board A"_s, u"recover "_s}));
+        QCOMPARE(dialog.remaining(), 0);
+        QCOMPARE(dialog.result(), int(QDialog::Accepted));
     }
 
     void quitClosesWindowCleanly()

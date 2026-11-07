@@ -2,10 +2,12 @@ add_library(glacier_persistence STATIC
     include/glacier/persistence/BoardSerializer.h
     include/glacier/persistence/DocumentLock.h
     include/glacier/persistence/Manifest.h
+    include/glacier/persistence/RecoveryStore.h
     include/glacier/persistence/ZipArchive.h
     src/BoardSerializer.cpp
     src/DocumentLock.cpp
     src/Manifest.cpp
+    src/RecoveryStore.cpp
     src/ZipArchive.cpp)
 add_library(glacier::persistence ALIAS glacier_persistence)
 
