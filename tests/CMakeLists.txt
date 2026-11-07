@@ -24,11 +24,13 @@ glacier_add_test(tst_platforminfo
 
 glacier_add_test(tst_mainwindow
     SOURCES tst_mainwindow.cpp
-    LIBS glacier::app glacier::canvas glacier::editing)
+    LIBS glacier::app glacier::canvas glacier::editing
+    SCALED)
 
 glacier_add_test(tst_links
     SOURCES tst_links.cpp
-    LIBS glacier::app glacier::canvas glacier::editing glacier::persistence)
+    LIBS glacier::app glacier::canvas glacier::editing glacier::persistence
+    SCALED)
 
 glacier_add_test(tst_settings
     SOURCES tst_settings.cpp
@@ -147,7 +149,8 @@ glacier_add_test(tst_imagecache
 
 glacier_add_test(tst_boardview
     SOURCES tst_boardview.cpp
-    LIBS glacier::canvas glacier::editing glacier::core)
+    LIBS glacier::canvas glacier::editing glacier::core
+    SCALED)
 
 glacier_add_test(tst_documentchange
     SOURCES tst_documentchange.cpp

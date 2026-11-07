@@ -29,10 +29,12 @@
 #include <QDir>
 #include <QFile>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QStyle>
 #include <QMenuBar>
 #include <QPushButton>
+#include <QScreen>
 #include <QSettings>
 #include <QTableWidget>
 #include <QToolButton>
@@ -854,16 +856,18 @@ private slots:
 
     void geometryIsRememberedForNewWindows()
     {
+        // Smaller than the screen at any scale factor (the .scaled run uses 1.5).
+        const QSize wanted = (QGuiApplication::primaryScreen()->availableSize() * 0.75).boundedTo(QSize(640, 480));
         {
             auto *window = new MainWindow(*m_services);
             window->setAttribute(Qt::WA_DeleteOnClose);
-            window->resize(640, 480); // fits the 800x600 offscreen screen
+            window->resize(wanted);
             window->show();
             QVERIFY(QTest::qWaitForWindowExposed(window));
             QVERIFY(window->close());
         }
         MainWindow next(*m_services);
-        QCOMPARE(next.size(), QSize(640, 480));
+        QCOMPARE(next.size(), wanted);
         m_services->settings()->setWindowGeometry({});
     }
 
@@ -928,6 +932,80 @@ private slots:
         QCOMPARE(FramelessController::edgesAt({1, 1}, size), Qt::Edges(Qt::TopEdge | Qt::LeftEdge));
         QCOMPARE(FramelessController::edgesAt({400, 300}, size), Qt::Edges());
         QCOMPARE(FramelessController::edgesAt({400, 6}, size), Qt::Edges()); // the grip below the top edge moves
+    }
+
+    // --- DPI, input and paths (M4.06) ---------------------------------------
+
+    void unicodePathsWithSpaces()
+    {
+        QTemporaryDir root;
+        const QString dir = root.filePath(u"Réf ä/Board 1 ✓"_s);
+        QVERIFY(QDir().mkpath(dir + u"/Bilder ✓"_s));
+        const QString image = dir + u"/Bilder ✓/ref ö 1.png"_s;
+        {
+            QImage pixels(30, 20, QImage::Format_RGB32);
+            pixels.fill(Qt::darkCyan);
+            QFile f(image);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(test::encode(pixels, "png"));
+        }
+        const QString board = dir + u"/Mood ✓ 1.glacierref"_s;
+        {
+            MainWindow window(*m_services);
+            io::ImportPlan plan = io::planForPaths({image});
+            plan.linked = true;
+            QSignalSpy applied(&window, &MainWindow::importApplied);
+            window.importPlan(plan, {});
+            QVERIFY(applied.wait(30000));
+            QVERIFY(window.document()->assets().cbegin()->linked);
+            QVERIFY(saveAndWait(window, board));
+            QSignalSpy written(&window, &MainWindow::recoverySnapshotWritten);
+            QVERIFY(window.controller()->run(ops::createNote(*window.document(), {0, 0}, u"ünïcödé ✓"_s), u"Note"_s));
+            window.writeRecoverySnapshot();
+            QVERIFY(written.wait(30000));
+            QVERIFY(written.first().first().toBool());
+            window.controller()->undoStack()->undo(); // clean again: no close prompt
+        }
+        MainWindow reopened(*m_services);
+        QSignalSpy loaded(&reopened, &MainWindow::boardLoaded);
+        reopened.loadBoard(board);
+        QVERIFY(loaded.wait(30000));
+        QVERIFY(loaded.first().first().toBool());
+        QCOMPARE(reopened.filePath(), QFileInfo(board).absoluteFilePath());
+        QCOMPARE(reopened.linkState(reopened.document()->assets().cbegin()->id), persistence::LinkState::Available);
+        QVERIFY(reopened.windowTitle().startsWith(u"Mood ✓ 1.glacierref"_s));
+    }
+
+    void canvasShortcutsDontFireInDialogs()
+    {
+        MainWindow window(*m_services);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        bool typed = false;
+        auto *timer = new QTimer;
+        timer->setInterval(20);
+        connect(timer, &QTimer::timeout, timer, [timer, &typed] {
+            const auto widgets = QApplication::topLevelWidgets();
+            for (QWidget *w : widgets) {
+                if (w->objectName() != u"helpDialog"_s || !w->isVisible())
+                    continue;
+                timer->stop();
+                timer->deleteLater();
+                auto *filter = w->findChild<QLineEdit *>();
+                filter->setFocus();
+                QTest::keyClicks(filter, u"nchvg"_s); // New Note, Crop, Flip, Grayscale on the canvas
+                typed = filter->text() == u"nchvg"_s;
+                static_cast<QDialog *>(w)->reject();
+                return;
+            }
+        });
+        timer->start();
+        window.action(u"Help"_s)->trigger();
+        QVERIFY(typed);
+        QCOMPARE(window.document()->notes().size(), 0);
+        QVERIFY(!window.document()->view().grayscale);
+        QVERIFY(!window.boardView()->isTextEditing());
+        QVERIFY(window.boardView()->hasFocus() || !window.isActiveWindow()); // focus goes back to the canvas
     }
 
     void quitClosesWindowCleanly()
