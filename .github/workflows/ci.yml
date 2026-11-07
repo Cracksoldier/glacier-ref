@@ -52,6 +52,9 @@ jobs:
           cache: true
           cache-key-prefix: qt-linux-x64-gcc14
 
+      - name: Enable GCC/Clang problem matcher
+        run: echo "::add-matcher::.github/problem-matchers/gcc.json"
+
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
       - name: Build
@@ -157,6 +160,9 @@ jobs:
           aqtversion: ==${{ env.AQT_VERSION }}
           cache: true
           cache-key-prefix: qt-macos-arm64-appleclang
+
+      - name: Enable GCC/Clang problem matcher
+        run: echo "::add-matcher::.github/problem-matchers/gcc.json"
 
       - name: Configure
         run: cmake --preset ci-release -DCMAKE_OSX_ARCHITECTURES=arm64

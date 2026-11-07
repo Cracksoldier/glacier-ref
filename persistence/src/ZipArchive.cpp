@@ -55,11 +55,13 @@ struct TrackedHeap
     static void *resize(void *opaque, void *address, size_t items, size_t size)
     {
         auto *heap = static_cast<TrackedHeap *>(opaque);
+        // Forget the old block before realloc may free it (never touch it after).
+        const bool tracked = address && heap->live.erase(address) > 0;
         void *p = std::realloc(address, items * size);
-        if (p) {
-            heap->live.erase(address);
+        if (p)
             heap->live.insert(p);
-        }
+        else if (tracked)
+            heap->live.insert(address); // realloc failed: the old block is still ours
         return p;
     }
     ~TrackedHeap()
