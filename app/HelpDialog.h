@@ -23,6 +23,7 @@ class HelpDialog : public QDialog
 public:
     struct ShortcutRow
     {
+        QString id;      // action ID
         QString menu;    // e.g. "Board"
         QString command; // action text without accelerator markers
         QList<QKeySequence> shortcuts;

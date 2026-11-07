@@ -1,5 +1,6 @@
 #include "AppServices.h"
 #include "DiagnosticLog.h"
+#include "Theme.h"
 #include "MainWindow.h"
 #include "RecoveryDialog.h"
 
@@ -65,6 +66,12 @@ int main(int argc, char *argv[])
                               QApplication::translate("main", "Glacier Ref could not start: %1").arg(error));
         return 1;
     }
+
+    // The Glacier appearance (spec §3), switchable live in Preferences.
+    glacier::theme::rememberSystemStyle();
+    glacier::theme::apply(services->settings()->theme());
+    QObject::connect(services->settings(), &glacier::SettingsService::appearanceChanged, &app,
+                     [&services] { glacier::theme::apply(services->settings()->theme()); });
 
     auto *window = new glacier::MainWindow(*services);
     window->setAttribute(Qt::WA_DeleteOnClose); // more windows via File > New Window

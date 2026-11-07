@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HelpDialog.h"
+#include "PreferencesDialog.h"
 #include "glacier/editing/CommandController.h"
 #include "glacier/io/ImportService.h"
 #include "glacier/persistence/BoardSerializer.h"
@@ -94,6 +95,8 @@ public:
     QString diagnosticsReport() const;
     QToolButton *menuButton() const { return m_menuButton; }
     QList<HelpDialog::ShortcutRow> shortcutRows() const;
+    QList<PreferencesDialog::ShortcutEntry> shortcutEntries() const;
+    QList<QKeySequence> defaultShortcuts(const QString &id) const { return m_defaultShortcuts.value(id); }
 
     // State of a linked asset's file (Available when not known otherwise).
     persistence::LinkState linkState(const Id &assetId) const;
@@ -174,6 +177,9 @@ private:
     void onBatchFinished(const io::ImportBatchResult &result);
     void showMessage(const QString &title, const QString &text, const QString &details = {});
     void showHelp(HelpDialog::Page page);
+    void showPreferences();
+    void applyShortcuts();
+    void updateTextEditingPassThrough();
     void openProjectWebsite();
     void applyMenuBarVisibility(bool visible);
     QList<glacier::Id> selection() const;
@@ -185,6 +191,7 @@ private:
     canvas::BoardView *m_view = nullptr;                // owned via QObject parent
     io::ImportService *m_import = nullptr;              // owned via QObject parent
     QHash<QString, QAction *> m_actions;                // owned via QObject parent
+    QHash<QString, QList<QKeySequence>> m_defaultShortcuts;
     QHash<quint64, QPointer<QProgressDialog>> m_progress;
     bool m_alwaysOnTopNoticeShown = false;
     QToolButton *m_menuButton = nullptr;

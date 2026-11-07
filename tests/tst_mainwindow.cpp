@@ -5,7 +5,10 @@
 #include "AppServices.h"
 #include "HelpDialog.h"
 #include "MainWindow.h"
+#include "PreferencesDialog.h"
 #include "SettingsService.h"
+#include "Theme.h"
+#include "glacier/canvas/ImageCache.h"
 #include "RecoveryDialog.h"
 #include "glacier/canvas/BoardScene.h"
 #include "glacier/canvas/BoardView.h"
@@ -24,7 +27,9 @@
 #include <QClipboard>
 #include <QDir>
 #include <QFile>
+#include <QLabel>
 #include <QMenu>
+#include <QStyle>
 #include <QMenuBar>
 #include <QPushButton>
 #include <QSettings>
@@ -766,6 +771,82 @@ private slots:
         QVERIFY(report.contains(u"Data folders:"_s));
         QVERIFY(report.contains(u"image cache:"_s));
         QVERIFY(!report.contains(QDir::homePath()));
+    }
+
+    // --- Preferences and theme (M4.02) --------------------------------------
+
+    void shortcutChangesApplyToEveryWindow()
+    {
+        MainWindow first(*m_services);
+        MainWindow second(*m_services);
+        const QKeySequence custom(Qt::CTRL | Qt::ALT | Qt::Key_S);
+        m_services->settings()->setShortcutOverrides({{u"Save"_s, {custom}}, {u"Grayscale"_s, {}}});
+        for (MainWindow *w : {&first, &second}) {
+            QCOMPARE(w->action(u"Save"_s)->shortcuts(), QList<QKeySequence>{custom});
+            QVERIFY(w->action(u"Grayscale"_s)->shortcuts().isEmpty());
+            QVERIFY(w->boardView()->textEditingPassThrough().contains(custom)); // still works in notes
+            QVERIFY(!w->boardView()->textEditingPassThrough().contains(QKeySequence(Qt::CTRL | Qt::Key_S)));
+        }
+        MainWindow later(*m_services); // new windows too
+        QCOMPARE(later.action(u"Save"_s)->shortcuts(), QList<QKeySequence>{custom});
+        m_services->settings()->setShortcutOverrides({});
+        QCOMPARE(first.action(u"Save"_s)->shortcut(), QKeySequence(Qt::CTRL | Qt::Key_S));
+        QCOMPARE(first.action(u"Grayscale"_s)->shortcut(), QKeySequence(Qt::Key_G));
+    }
+
+    void preferencesRefuseConflictsAndStoreOnlyChanges()
+    {
+        MainWindow window(*m_services);
+        const QList<PreferencesDialog::ShortcutEntry> entries = window.shortcutEntries();
+        QCOMPARE(entries.size(), window.shortcutRows().size());
+        PreferencesDialog dialog(m_services->settings(), entries, {u"s"_s, u"t"_s, u"r"_s, u"l"_s});
+        QVERIFY(dialog.okButton()->isEnabled());
+
+        dialog.setShortcutForTesting(u"Crop"_s, {QKeySequence(Qt::CTRL | Qt::Key_S)});
+        QVERIFY(!dialog.okButton()->isEnabled());
+        QCOMPARE(dialog.conflicts().value(QKeySequence(Qt::CTRL | Qt::Key_S)), (QStringList{u"Crop"_s, u"Save"_s}));
+        QVERIFY(dialog.findChild<QLabel *>(u"conflictLabel"_s)->text().contains(u"Crop"_s));
+        dialog.accept(); // refused while conflicting
+        QVERIFY(m_services->settings()->shortcutOverrides().isEmpty());
+
+        dialog.setShortcutForTesting(u"Crop"_s, {QKeySequence(Qt::Key_C)}); // back to the default
+        dialog.setShortcutForTesting(u"Grayscale"_s, {QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Y)});
+        QVERIFY(dialog.okButton()->isEnabled());
+        dialog.accept();
+        const SettingsService::ShortcutMap stored = m_services->settings()->shortcutOverrides();
+        QCOMPARE(stored.size(), 1);
+        QCOMPARE(stored.value(u"Grayscale"_s), QList<QKeySequence>{QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Y)});
+        QCOMPARE(window.action(u"Grayscale"_s)->shortcut(), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Y));
+        m_services->settings()->setShortcutOverrides({});
+    }
+
+    void cacheBudgetAppliesLive()
+    {
+        m_services->settings()->setCacheBudgetMiB(1024);
+        QCOMPARE(m_services->cache()->stats().budgetBytes, qint64(1024) * 1024 * 1024);
+        m_services->settings()->setCacheBudgetMiB(SettingsService::DefaultCacheBudgetMiB);
+        QCOMPARE(m_services->cache()->stats().budgetBytes, qint64(512) * 1024 * 1024);
+    }
+
+    void themeSwitchesLive()
+    {
+        theme::rememberSystemStyle();
+        theme::apply(SettingsService::Theme::Glacier);
+        QCOMPARE(QApplication::style()->name().toLower(), u"fusion"_s);
+        QCOMPARE(QApplication::palette().color(QPalette::Window), QColor(0x20, 0x23, 0x27));
+        theme::apply(SettingsService::Theme::System);
+        QVERIFY(QApplication::palette().color(QPalette::Window) != QColor(0x20, 0x23, 0x27));
+    }
+
+    void newBoardsUseThePreferredBackground()
+    {
+        m_services->settings()->setNewBoardBackground(0xFF112233u);
+        MainWindow window(*m_services);
+        QCOMPARE(window.document()->view().backgroundColor, 0xFF112233u);
+        QVERIFY(!window.controller()->isDirty());
+        QCOMPARE(window.controller()->undoStack()->count(), 0);
+        QVERIFY(window.isReusable());
+        m_services->settings()->setNewBoardBackground(SettingsService::DefaultBoardBackground);
     }
 
     void quitClosesWindowCleanly()

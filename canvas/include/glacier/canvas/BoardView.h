@@ -71,6 +71,7 @@ public:
 
     // Shortcuts that still reach the window while a note is being edited.
     void setTextEditingPassThrough(const QList<QKeySequence> &shortcuts) { m_textPassThrough = shortcuts; }
+    QList<QKeySequence> textEditingPassThrough() const { return m_textPassThrough; }
 
     // Runs an edit through the controller; shows its error or lock notice.
     bool runEdit(const editing::OpResult &result, const QString &text);

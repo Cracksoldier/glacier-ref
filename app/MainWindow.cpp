@@ -3,6 +3,7 @@
 #include "AppServices.h"
 #include "DiagnosticLog.h"
 #include "NoteStyleDialog.h"
+#include "PreferencesDialog.h"
 #include "glacier/canvas/BoardScene.h"
 #include "glacier/canvas/BoardView.h"
 #include "glacier/canvas/ImageCache.h"
@@ -133,11 +134,15 @@ MainWindow::MainWindow(AppServices &services, QWidget *parent)
     connect(m_services.settings(), &SettingsService::menuBarVisibleChanged, this, &MainWindow::applyMenuBarVisibility);
 
     connect(m_view, &canvas::BoardView::dropReceived, this, &MainWindow::handleDrop);
-    // File commands still work while a note is edited; they commit it first.
-    QList<QKeySequence> passThrough;
-    for (const QString &id : {u"Save"_s, u"SaveAs"_s, u"Open"_s, u"NewWindow"_s, u"CloseWindow"_s, u"Quit"_s})
-        passThrough.append(m_actions.value(id)->shortcuts());
-    m_view->setTextEditingPassThrough(passThrough);
+    updateTextEditingPassThrough();
+    connect(m_services.settings(), &SettingsService::shortcutsChanged, this, &MainWindow::applyShortcuts);
+    // New boards get the preferred background (not an edit: no undo step, not dirty).
+    if (const quint32 background = m_services.settings()->newBoardBackground();
+        background != m_document->view().backgroundColor) {
+        DocumentChange change;
+        change.view = ViewSettings{background, m_document->view().grayscale};
+        m_document->apply(change);
+    }
     connect(m_view, &canvas::BoardView::contextMenuRequested, this, [this](QPoint globalPos) {
         QMenu *menu = createContextMenu(this);
         menu->setAttribute(Qt::WA_DeleteOnClose);
@@ -218,8 +223,10 @@ QAction *MainWindow::addAction(QMenu *menu, const QString &id, const QString &te
 {
     auto *action = new QAction(text, this);
     action->setObjectName(u"action"_s + id);
-    if (!shortcuts.isEmpty())
-        action->setShortcuts(shortcuts);
+    m_defaultShortcuts.insert(id, shortcuts);
+    const QList<QKeySequence> effective = m_services.settings()->shortcuts(id, shortcuts);
+    if (!effective.isEmpty())
+        action->setShortcuts(effective);
     action->setShortcutContext(Qt::WindowShortcut);
     if (menu)
         menu->addAction(action);
@@ -312,6 +319,13 @@ void MainWindow::createActions()
     editMenu->addSeparator();
     addAction(editMenu, u"SelectAll"_s, tr("Select &All"), {key(Qt::CTRL | Qt::Key_A)});
     on(u"SelectAll"_s, &MainWindow::selectAll);
+    editMenu->addSeparator();
+    QList<QKeySequence> preferenceKeys = QKeySequence::keyBindings(QKeySequence::Preferences);
+    if (preferenceKeys.isEmpty())
+        preferenceKeys = {key(Qt::CTRL | Qt::Key_Comma)};
+    QAction *preferences = addAction(editMenu, u"Preferences"_s, tr("Pr&eferences…"), preferenceKeys);
+    preferences->setMenuRole(QAction::PreferencesRole);
+    on(u"Preferences"_s, &MainWindow::showPreferences);
 
     // Board
     QMenu *board = menuBar()->addMenu(tr("&Board"));
@@ -1743,6 +1757,44 @@ void MainWindow::showMessage(const QString &title, const QString &text, const QS
     box->open(); // non-blocking
 }
 
+// --- Preferences (M4.02) ---------------------------------------------------------------
+
+void MainWindow::updateTextEditingPassThrough()
+{
+    // File commands still work while a note is edited; they commit it first.
+    QList<QKeySequence> passThrough;
+    for (const QString &id : {u"Save"_s, u"SaveAs"_s, u"Open"_s, u"NewWindow"_s, u"CloseWindow"_s, u"Quit"_s})
+        passThrough.append(m_actions.value(id)->shortcuts());
+    m_view->setTextEditingPassThrough(passThrough);
+}
+
+void MainWindow::applyShortcuts()
+{
+    for (auto it = m_actions.cbegin(); it != m_actions.cend(); ++it)
+        it.value()->setShortcuts(m_services.settings()->shortcuts(it.key(), m_defaultShortcuts.value(it.key())));
+    updateTextEditingPassThrough();
+}
+
+QList<PreferencesDialog::ShortcutEntry> MainWindow::shortcutEntries() const
+{
+    QList<PreferencesDialog::ShortcutEntry> entries;
+    for (const HelpDialog::ShortcutRow &row : shortcutRows())
+        if (m_actions.contains(row.id))
+            entries.append({row.id, row.menu, row.command, m_defaultShortcuts.value(row.id), row.shortcuts});
+    return entries;
+}
+
+void MainWindow::showPreferences()
+{
+    finishModes();
+    PreferencesDialog dialog(m_services.settings(), shortcutEntries(),
+                             {QSettings().fileName(), m_services.sessionRoot(), m_services.recoveryRoot(),
+                              AppServices::logDirectory()},
+                             this);
+    dialog.exec();
+    m_view->setFocus();
+}
+
 // --- Minimal UI and help (M4.01) ----------------------------------------------------
 
 namespace {
@@ -1801,7 +1853,7 @@ QList<HelpDialog::ShortcutRow> MainWindow::shortcutRows() const
             QString text = a->text();
             text.remove(u'&');
             text.remove(u'…');
-            rows.append({title, text.trimmed(), a->shortcuts()});
+            rows.append({a->objectName().mid(6), title, text.trimmed(), a->shortcuts()}); // "action<ID>"
         }
     };
     for (QAction *top : menuBar()->actions()) {
