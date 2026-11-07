@@ -25,6 +25,10 @@ modules:
       - -DCMAKE_BUILD_TYPE=Release
       - -DGLACIER_BUILD_TOOLS=OFF
       - -DGLACIER_BUILD_TESTS=ON
+    # Keep building after an error, so one run reports every incompatibility
+    # with the runtime's Qt.
+    make-args:
+      - -k0
     # The whole suite, offline (the build sandbox has no network). The SDK
     # may lack the de_AT C locale: build it when localedef can, otherwise
     # skip only the de_AT entries (other CI jobs run them) and say so.

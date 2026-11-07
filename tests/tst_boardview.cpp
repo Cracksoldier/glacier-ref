@@ -346,7 +346,11 @@ private slots:
         QSignalSpy dropped(m_view.get(), &BoardView::dropReceived);
         QMimeData mime;
         mime.setUrls({QUrl::fromLocalFile(u"/tmp/x.png"_s)});
+#if QT_VERSION >= QT_VERSION_CHECK(6, 12, 0)
         const QPointF pos(100, 100);
+#else
+        const QPoint pos(100, 100); // QDragEnterEvent takes QPointF from Qt 6.12
+#endif
         QDragEnterEvent enter(pos, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(m_view->viewport(), &enter);
         QDropEvent drop(pos, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
