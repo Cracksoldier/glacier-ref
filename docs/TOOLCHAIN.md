@@ -31,10 +31,23 @@ reads.
 | `actions/checkout` | v7.0.1 | `3d3c42e5aac5ba805825da76410c181273ba90b1` |
 | `jurplel/install-qt-action` | v4.5.0 | `b344308e4483fc892e0d27b3cd1b173ebdd95f06` |
 | `actions/cache` | v6.1.0 | `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` |
+| `actions/upload-artifact` | v7.0.2 | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` |
+| `actions/download-artifact` | v8.0.2 | `9000827ccba6bdab643e8b6fd33ac0654aef8333` |
 
 install-qt-action itself pins `actions/setup-python` by SHA (v6.3.0,
 `ece7cb06caefa5fff74198d8649806c4678c61a1`). Dependabot proposes SHA updates
 weekly as pull requests.
+
+### Packaging tools
+
+Pinned in the packaging scripts and verified by SHA-256 before use (see
+[RELEASING.md](RELEASING.md)). `windeployqt` and `macdeployqt` come with the
+Qt pin; the MSVC runtime comes from the Visual Studio used for the build.
+
+| Tool | Release | SHA-256 |
+| --- | --- | --- |
+| linuxdeploy (`linuxdeploy-x86_64.AppImage`, bundles the AppImage plugin) | `1-alpha-20251107-1` | `c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d` |
+| linuxdeploy-plugin-qt (`linuxdeploy-plugin-qt-x86_64.AppImage`) | `1-alpha-20250213-1` | `15106be885c1c48a021198e7e1e9a48ce9d02a86dd0a1848f00bdbf3c1c92724` |
 
 ### Windows: why not aqtinstall
 

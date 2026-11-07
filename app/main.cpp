@@ -6,19 +6,52 @@
 
 #include "glacier/core/AppInfo.h"
 #include "glacier/core/Diagnostics.h"
+#include "glacier/io/DecoderSelfCheck.h"
+#include "glacier/io/ImageDecoder.h"
 #include "glacier/platform/PlatformInfo.h"
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QCoreApplication>
 #include <QIcon>
 #include <QMessageBox>
 #include <QStringList>
 #include <QTextStream>
 
+#include <cstring>
+
 using namespace Qt::StringLiterals;
+
+namespace {
+
+// `--check-image-formats`: decodes a sample of every v1 format with the
+// shipped plugins and exits non-zero if any fails. Release packaging runs it
+// on each package (spec §4); it needs no display, so it runs before
+// QApplication exists.
+int checkImageFormats(int argc, char *argv[])
+{
+    QCoreApplication app(argc, argv);
+    glacier::io::configureImageAllocationLimit(glacier::Limits{});
+    QTextStream out(stdout);
+    bool allOk = true;
+    for (const glacier::io::FormatCheck &check : glacier::io::checkDecoders()) {
+        out << glacier::io::displayName(check.format) << u": "_s
+            << (check.ok ? u"ok"_s : u"FAILED (%1)"_s.arg(check.detail)) << u'\n';
+        allOk = allOk && check.ok;
+    }
+    out << u"Plugin paths: "_s << QCoreApplication::libraryPaths().join(u"; "_s) << u'\n';
+    return allOk ? 0 : 1;
+}
+
+} // namespace
 
 int main(int argc, char *argv[])
 {
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--check-image-formats") == 0)
+            return checkImageFormats(argc, argv);
+    }
+
     QApplication::setOrganizationName(glacier::app_info::organizationName());
     QApplication::setOrganizationDomain(glacier::app_info::organizationDomain());
     QApplication::setApplicationName(glacier::app_info::applicationName());
@@ -41,6 +74,10 @@ int main(int argc, char *argv[])
         u"platform-info"_s,
         QApplication::translate("main", "Print platform information (Qt platform plugin, session, screens) and exit."));
     parser.addOption(platformInfoOption);
+    // Handled before QApplication is created; listed here for --help.
+    parser.addOption(QCommandLineOption(
+        u"check-image-formats"_s,
+        QApplication::translate("main", "Decode a sample of every supported image format and exit (packaging check).")));
     parser.addPositionalArgument(u"boards"_s, QApplication::translate("main", "Boards (.glacierref) to open."),
                                  u"[boards...]"_s);
     parser.process(app);

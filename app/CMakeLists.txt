@@ -35,7 +35,7 @@ target_link_libraries(glacier_app
 
 qt_add_executable(glacier-ref main.cpp)
 glacier_configure_target(glacier-ref)
-target_link_libraries(glacier-ref PRIVATE glacier::app glacier::core glacier::platform)
+target_link_libraries(glacier-ref PRIVATE glacier::app glacier::core glacier::io glacier::platform)
 
 qt_add_resources(glacier-ref app_resources
     PREFIX "/"
@@ -51,9 +51,16 @@ set_target_properties(glacier-ref PROPERTIES
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
 
 include(GNUInstallDirs)
+# Windows packages keep the executable at the top of the folder, next to the
+# Qt runtime that windeployqt stages (packaging/windows/stage.ps1).
+if(WIN32)
+    set(GLACIER_INSTALL_BINDIR .)
+else()
+    set(GLACIER_INSTALL_BINDIR ${CMAKE_INSTALL_BINDIR})
+endif()
 install(TARGETS glacier-ref
     BUNDLE DESTINATION .
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    RUNTIME DESTINATION ${GLACIER_INSTALL_BINDIR})
 
 if(UNIX AND NOT APPLE)
     install(FILES "${PROJECT_SOURCE_DIR}/resources/linux/io.github.cracksoldier.GlacierRef.desktop"

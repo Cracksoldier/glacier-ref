@@ -1,6 +1,7 @@
 #include "GlacierTestMain.h"
 #include "TestImages.h"
 
+#include "glacier/io/DecoderSelfCheck.h"
 #include "glacier/io/ImageDecoder.h"
 
 #include <QGuiApplication>
@@ -35,6 +36,16 @@ class TestImageProbe : public QObject
 
 private slots:
     void initTestCase() { configureImageAllocationLimit(Limits{}); }
+
+    // The packaged-build self-check (glacier-ref --check-image-formats)
+    // covers every allowlisted format and passes with the test's Qt.
+    void decoderSelfCheckPasses()
+    {
+        const QList<FormatCheck> checks = checkDecoders();
+        QCOMPARE(checks.size(), 7);
+        for (const FormatCheck &check : checks)
+            QVERIFY2(check.ok, qPrintable(displayName(check.format) + u": "_s + check.detail));
+    }
 
     void acceptsAllowlistedFormats_data()
     {

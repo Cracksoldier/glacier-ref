@@ -1,9 +1,11 @@
 add_library(glacier_io STATIC
+    include/glacier/io/DecoderSelfCheck.h
     include/glacier/io/ImageDecoder.h
     include/glacier/io/ImageFormats.h
     include/glacier/io/ImportService.h
     include/glacier/io/MimeRouter.h
     include/glacier/io/SvgValidator.h
+    src/DecoderSelfCheck.cpp
     src/ExifOrientation.cpp
     src/ExifOrientation.h
     src/ImageDecoder.cpp
