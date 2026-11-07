@@ -10,11 +10,18 @@
 // Then the persistence phase (M3): saves the board, writes a recovery snapshot
 // of an edit, and opens the saved board in a new window, each timed together
 // with the longest GUI stall (spec §9: no sustained stalls above 200 ms).
+//
+// M4.07 adds: the longest stall during import, selection and move-preview
+// feedback on the whole board (budget under 100 ms), and for the opened board
+// the time to the first decoded image and to "usable" (every visible level
+// decoded). With --cold the bench pauses before opening, so the page cache can
+// be dropped (sudo) for a cold measurement.
 
 #include "AppServices.h"
 #include "MainWindow.h"
 #include "glacier/canvas/BoardScene.h"
 #include "glacier/canvas/BoardView.h"
+#include <QMouseEvent>
 #include "glacier/canvas/ImageCache.h"
 #include "glacier/core/BoardDocument.h"
 #include "glacier/editing/CommandController.h"
@@ -167,7 +174,8 @@ int main(int argc, char *argv[])
     const QCommandLineOption screenOption(u"screen"_s, u"Screen name to run on full screen (e.g. HDMI-A-1)."_s, u"name"_s);
     const QCommandLineOption sizeOption(u"size"_s, u"Window size WxH instead of maximized (e.g. 2560x1440)."_s, u"WxH"_s);
     const QCommandLineOption storeOption(u"store-root"_s, u"Asset store root (default: next to the dataset)."_s, u"dir"_s);
-    parser.addOptions({datasetOption, framesOption, jsonOption, screenOption, sizeOption, storeOption});
+    const QCommandLineOption coldOption(u"cold"_s, u"Pause before opening the saved board, to drop the page cache."_s);
+    parser.addOptions({datasetOption, framesOption, jsonOption, screenOption, sizeOption, storeOption, coldOption});
     parser.process(app);
 
     QTextStream out(stdout);
@@ -230,10 +238,13 @@ int main(int argc, char *argv[])
             batch = r;
             done = true;
         });
+        StallMeter importMeter;
+        importMeter.start();
         window.importPlan(io::planForPaths({dataset}), QPointF(0, 0));
         while (!done)
             QCoreApplication::processEvents(QEventLoop::WaitForMoreEvents, 100);
         const double importSeconds = double(importTimer.nsecsElapsed()) / 1e9;
+        const double importStall = importMeter.stop();
         const qint64 rssAfterImport = procStatusKiB("VmRSS:");
 
         canvas::BoardView *view = window.boardView();
@@ -255,6 +266,37 @@ int main(int argc, char *argv[])
         }
         const QList<double> pass2 = runPass(view, bounds, frames);
         const auto cache = services->cache()->stats();
+        const qint64 rssSteady = procStatusKiB("VmRSS:"); // comparable with the M1-M3 records
+
+        // Selection and transform feedback on the whole board (spec §9: < 100 ms).
+        view->fitBoard();
+        view->viewport()->repaint();
+        const QList<Id> all = window.document()->topLevelIdsByZ();
+        QElapsedTimer feedback;
+        feedback.start();
+        window.boardScene()->selectIds(all);
+        view->viewport()->repaint();
+        const double selectMs = double(feedback.nsecsElapsed()) / 1e6;
+        const QPointF grab = view->mapFromScene(window.document()->worldBounds(all.last()).center());
+        auto mouse = [view](QEvent::Type type, QPointF pos, Qt::MouseButtons buttons) {
+            QMouseEvent e(type, pos, view->viewport()->mapToGlobal(pos), Qt::LeftButton, buttons, Qt::NoModifier);
+            QCoreApplication::sendEvent(view->viewport(), &e);
+        };
+        mouse(QEvent::MouseButtonPress, grab, Qt::LeftButton);
+        mouse(QEvent::MouseMove, grab + QPointF(6, 0), Qt::LeftButton); // past the drag threshold
+        view->viewport()->repaint();
+        feedback.restart();
+        mouse(QEvent::MouseMove, grab + QPointF(40, 25), Qt::LeftButton);
+        view->viewport()->repaint();
+        const double moveMs = double(feedback.nsecsElapsed()) / 1e6;
+        feedback.restart();
+        mouse(QEvent::MouseButtonRelease, grab + QPointF(40, 25), Qt::NoButton);
+        view->viewport()->repaint();
+        const double commitMs = double(feedback.nsecsElapsed()) / 1e6;
+        const bool moved = window.controller()->undoStack()->count() == 1;
+        if (moved)
+            window.controller()->undoStack()->undo();
+        window.boardScene()->clearSelection();
 
         const QSize viewport = view->viewport()->size();
         result = QJsonObject{
@@ -262,13 +304,20 @@ int main(int argc, char *argv[])
             {u"items"_s, int(window.document()->itemCount())},
             {u"import_failures"_s, int(batch.failures.size())},
             {u"import_seconds"_s, importSeconds},
+            {u"import_longest_stall_ms"_s, importStall},
+            {u"feedback"_s, QJsonObject{{u"selected"_s, int(all.size())},
+                                        {u"select_all_ms"_s, selectMs},
+                                        {u"move_preview_ms"_s, moveMs},
+                                        {u"move_commit_ms"_s, commitMs},
+                                        {u"move_was_one_step"_s, moved}}},
             {u"first_paint_ms"_s, firstPaintMs},
             {u"viewport"_s, u"%1x%2"_s.arg(viewport.width()).arg(viewport.height())},
             {u"device_pixel_ratio"_s, view->devicePixelRatioF()},
             {u"pass1_filling_cache"_s, percentiles(pass1)},
             {u"pass2_warm_cache"_s, percentiles(pass2)},
             {u"rss_after_import_mib"_s, rssAfterImport / 1024.0},
-            {u"rss_steady_mib"_s, procStatusKiB("VmRSS:") / 1024.0},
+            {u"rss_steady_mib"_s, rssSteady / 1024.0},
+            {u"rss_after_feedback_mib"_s, procStatusKiB("VmRSS:") / 1024.0},
             {u"rss_peak_mib"_s, procStatusKiB("VmHWM:") / 1024.0},
             {u"cache"_s, QJsonObject{{u"budget_mib"_s, cache.budgetBytes / 1048576.0},
                                      {u"used_mib"_s, cache.bytesUsed / 1048576.0},
@@ -314,13 +363,33 @@ int main(int argc, char *argv[])
         window.controller()->undoStack()->undo(); // back to the saved state: no close prompt
     }
 
-    // Open the saved board in a new window (the first one has released it).
+    // Open the saved board in a new window (the first one has released it),
+    // with an empty image cache, as after a fresh start.
+    if (parser.isSet(coldOption)) {
+        out << "Saved. For a cold open, drop the page cache in another terminal:\n"
+               "  sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'\n"
+               "then press Enter here." << Qt::endl;
+        QTextStream(stdin).readLine();
+    }
+    services->cache()->setBudget(1); // evicts everything
+    services->cache()->setBudget(qint64(services->settings()->cacheBudgetMiB()) * 1024 * 1024);
     {
         MainWindow window(*services);
-        window.resize(1280, 800);
+        if (parser.isSet(sizeOption)) {
+            const QStringList parts = parser.value(sizeOption).split(u'x');
+            window.resize(parts[0].toInt(), parts[1].toInt());
+        } else {
+            window.resize(1280, 800);
+        }
         window.show();
         waitFor(500);
         StallMeter meter;
+        double firstImageMs = -1;
+        QElapsedTimer sinceOpen;
+        QObject::connect(services->cache(), &canvas::ImageCache::levelReady, &window, [&] {
+            if (firstImageMs < 0)
+                firstImageMs = double(sinceOpen.nsecsElapsed()) / 1e6;
+        });
         bool loaded = false;
         bool loadOk = false;
         QObject::connect(&window, &MainWindow::boardLoaded, &window, [&](bool ok) {
@@ -329,12 +398,32 @@ int main(int argc, char *argv[])
         });
         QElapsedTimer timer;
         timer.start();
+        sinceOpen.start();
         meter.start();
         window.loadBoard(QDir(storeDir.path()).filePath(u"bench.glacierref"_s));
         until(loaded);
+        const double loadSeconds = double(timer.nsecsElapsed()) / 1e9;
+        // Usable: the visible board is drawn from decoded levels, none pending.
+        window.boardView()->fitBoard();
+        double usableMs = -1;
+        for (int i = 0; i < 6000 && usableMs < 0; ++i) { // at most 60 s
+            window.boardView()->viewport()->repaint(); // requests the levels it needs
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+            const auto s = services->cache()->stats();
+            if (firstImageMs >= 0 && s.decodesStarted == s.decodesFinished + s.decodesFailed) {
+                window.boardView()->viewport()->repaint();
+                const auto again = services->cache()->stats();
+                if (again.decodesStarted == s.decodesStarted)
+                    usableMs = double(sinceOpen.nsecsElapsed()) / 1e6;
+            }
+            waitFor(10);
+        }
         const double stall = meter.stop();
         result.insert(u"open"_s, QJsonObject{{u"ok"_s, loadOk},
-                                             {u"seconds"_s, double(timer.nsecsElapsed()) / 1e9},
+                                             {u"cold"_s, parser.isSet(coldOption)},
+                                             {u"seconds"_s, loadSeconds},
+                                             {u"first_image_ms"_s, firstImageMs},
+                                             {u"usable_ms"_s, usableMs},
                                              {u"longest_stall_ms"_s, stall},
                                              {u"items"_s, int(window.document()->itemCount())}});
     }
@@ -354,11 +443,19 @@ int main(int argc, char *argv[])
     const QJsonObject save = result.value(u"save"_s).toObject();
     const QJsonObject open = result.value(u"open"_s).toObject();
     const QJsonObject snapshot = result.value(u"recovery_snapshot"_s).toObject();
+    const QJsonObject feedback = result.value(u"feedback"_s).toObject();
+    out << "import stall " << result.value(u"import_longest_stall_ms"_s).toDouble() << " ms; select all "
+        << feedback.value(u"select_all_ms"_s).toDouble() << " ms, move preview "
+        << feedback.value(u"move_preview_ms"_s).toDouble() << " ms, commit "
+        << feedback.value(u"move_commit_ms"_s).toDouble() << " ms (" << feedback.value(u"selected"_s).toInt()
+        << " items)" << Qt::endl;
     out << "save " << save.value(u"seconds"_s).toDouble() << " s (stall " << save.value(u"longest_stall_ms"_s).toDouble()
         << " ms, " << save.value(u"file_mib"_s).toDouble() << " MiB), snapshot " << snapshot.value(u"seconds"_s).toDouble()
         << " s (stall " << snapshot.value(u"longest_stall_ms"_s).toDouble() << " ms), open "
         << open.value(u"seconds"_s).toDouble() << " s (stall " << open.value(u"longest_stall_ms"_s).toDouble()
-        << " ms, " << open.value(u"items"_s).toInt() << " items)" << Qt::endl;
+        << " ms, " << open.value(u"items"_s).toInt() << " items), first image "
+        << open.value(u"first_image_ms"_s).toDouble() << " ms, usable " << open.value(u"usable_ms"_s).toDouble()
+        << " ms" << (open.value(u"cold"_s).toBool() ? " (cold)" : "") << Qt::endl;
     if (!parser.isSet(jsonOption))
         out << json;
     return 0;

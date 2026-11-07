@@ -1008,6 +1008,24 @@ private slots:
         QVERIFY(window.boardView()->hasFocus() || !window.isActiveWindow()); // focus goes back to the canvas
     }
 
+    // M4.07: one selectionChanged per selection change, not one per item
+    // (listeners look at the whole selection: n items cost n^2 before).
+    void selectingManyItemsSignalsOnce()
+    {
+        MainWindow window(*m_services);
+        QVERIFY(importThree(window));
+        QSignalSpy changed(window.boardScene(), &QGraphicsScene::selectionChanged);
+        window.boardScene()->selectIds(window.document()->topLevelIdsByZ());
+        QCOMPARE(changed.size(), 1);
+        QCOMPARE(window.boardScene()->selectedIds().size(), 3);
+        QVERIFY(window.action(u"Delete"_s)->isEnabled()); // action states follow at once
+        window.boardScene()->clearSelection();
+        changed.clear();
+        window.action(u"SelectAll"_s)->trigger();
+        QCOMPARE(changed.size(), 1);
+        QCOMPARE(window.boardScene()->selectedIds().size(), 3);
+    }
+
     void quitClosesWindowCleanly()
     {
         auto *window = new MainWindow(*m_services);

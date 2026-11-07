@@ -3,6 +3,8 @@
 #include "glacier/canvas/ImageCache.h"
 #include "glacier/core/Limits.h"
 
+#include <QSignalBlocker>
+
 namespace glacier::canvas {
 
 BoardScene::BoardScene(BoardDocument *document, ImageCache *cache, QObject *parent)
@@ -248,10 +250,28 @@ QList<Id> BoardScene::selectedIds() const
 
 void BoardScene::selectIds(const QList<Id> &ids)
 {
-    clearSelection();
-    for (const Id &id : ids)
-        if (BoardItem *item = m_items.value(id); item && item->flags().testFlag(QGraphicsItem::ItemIsSelectable))
-            item->setSelected(true);
+    // QGraphicsScene emits selectionChanged for every item; listeners such as
+    // the window's action states look at the whole selection, which made
+    // selecting n items cost n^2 (361 ms for 1,000 items, M4.07). One signal.
+    {
+        const QSignalBlocker blocker(this);
+        clearSelection();
+        for (const Id &id : ids)
+            if (BoardItem *item = m_items.value(id); item && item->flags().testFlag(QGraphicsItem::ItemIsSelectable))
+                item->setSelected(true);
+    }
+    emit selectionChanged();
+}
+
+void BoardScene::selectAllSelectable()
+{
+    {
+        const QSignalBlocker blocker(this);
+        for (BoardItem *item : std::as_const(m_items))
+            if (item->flags().testFlag(QGraphicsItem::ItemIsSelectable))
+                item->setSelected(true);
+    }
+    emit selectionChanged();
 }
 
 QRectF BoardScene::selectionBounds() const

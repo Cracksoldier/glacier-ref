@@ -76,6 +76,26 @@ QString boardFileFilter()
     return QCoreApplication::translate("glacier::MainWindow", "Glacier Ref boards (*.glacierref)");
 }
 
+// Ends a progress dialog when its job finishes. It must not be deleted here:
+// a window-modal QProgressDialog runs a nested event loop inside setValue(),
+// and the job's "finished" can arrive in that loop, so the dialog is still
+// executing (deleting it crashed the benchmark). Nor may it stay pending: a
+// message box shown next runs its own loop, where deleteLater doesn't run,
+// and the dialog would appear over the box after its delay (M3 demo, step 23).
+// So: stop its updates, cancel it (hidden, and it never shows itself again),
+// and delete it later.
+void retireProgressDialog(QProgressDialog *dialog, const QObject *progressSource = nullptr)
+{
+    if (!dialog)
+        return;
+    if (progressSource)
+        QObject::disconnect(progressSource, nullptr, dialog, nullptr); // no more progress updates
+    dialog->blockSignals(true);                              // no "canceled" (import would treat it as Cancel)
+    dialog->cancel();
+    dialog->blockSignals(false);
+    dialog->deleteLater();
+}
+
 bool isBoardFile(const QString &path)
 {
     return QFileInfo(path).suffix().compare(BoardSuffix, Qt::CaseInsensitive) == 0;
@@ -697,10 +717,7 @@ void MainWindow::loadBoard(const QString &path)
     connect(watcher, &QFutureWatcherBase::progressRangeChanged, dialog, &QProgressDialog::setRange);
     connect(watcher, &QFutureWatcherBase::progressValueChanged, dialog, &QProgressDialog::setValue);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, dialog, absolute, lock] {
-        // Delete now, not later: a message box shown next runs its own event
-        // loop, where a pending deleteLater would not run and the (window-modal)
-        // progress dialog could still appear and block the box.
-        delete dialog;
+        retireProgressDialog(dialog, watcher);
         watcher->deleteLater();
         applyLoaded(absolute, watcher->result(), lock);
     });
@@ -972,7 +989,7 @@ void MainWindow::startSave(const QString &path, std::shared_ptr<persistence::Doc
     const persistence::BoardContent content = request.content;
     connect(watcher, &QFutureWatcherBase::finished, this,
             [this, watcher, dialog, path, content, marker, newLock, done = std::move(done)] {
-                delete dialog; // before any message box (see loadBoard)
+                retireProgressDialog(dialog, watcher);
                 watcher->deleteLater();
                 finishSave(watcher->result(), path, content, marker, newLock, done);
             });
@@ -1632,10 +1649,7 @@ void MainWindow::copyImage()
 void MainWindow::selectAll()
 {
     finishModes();
-    const auto items = m_scene->items();
-    for (QGraphicsItem *item : items)
-        if (item->flags().testFlag(QGraphicsItem::ItemIsSelectable))
-            item->setSelected(true);
+    m_scene->selectAllSelectable();
 }
 
 // --- Dialogs -----------------------------------------------------------------------
@@ -1735,7 +1749,7 @@ void MainWindow::onImportProgress(quint64 batchId, int done, int total)
 void MainWindow::onBatchFinished(const io::ImportBatchResult &result)
 {
     if (QPointer<QProgressDialog> dialog = m_progress.take(result.batchId))
-        delete dialog.data(); // before any message box (see loadBoard)
+        retireProgressDialog(dialog.data());
     if (result.documentToken != m_document->documentToken())
         return; // stale: the document was replaced since the batch started
 

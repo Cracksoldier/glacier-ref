@@ -33,7 +33,9 @@ public:
     GroupItem *groupItem(const Id &id) const;
 
     QList<Id> selectedIds() const;
+    // Replaces the selection; selectionChanged is emitted once.
     void selectIds(const QList<Id> &ids);
+    void selectAllSelectable();
     QRectF selectionBounds() const;
     QRectF contentBounds() const;
 
