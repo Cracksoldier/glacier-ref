@@ -21,6 +21,9 @@ namespace glacier::canvas {
 
 namespace {
 const QColor PlaceholderColor(0x50, 0x53, 0x57);
+const QColor MissingColor(0x2b, 0x2d, 0x31);
+const QColor MissingLineColor(0xc8, 0x7a, 0x3c);
+const QColor MissingTextColor(0xe6, 0xe6, 0xe6);
 const QColor CropShade(0, 0, 0, 150);
 
 QColor argb(quint32 v)
@@ -99,8 +102,38 @@ int ImageItem::neededSide(qreal levelOfDetail, qreal devicePixelRatio) const
     return std::max(1, int(std::ceil(longest * levelOfDetail * devicePixelRatio)));
 }
 
+void ImageItem::setSha256(const QByteArray &sha256)
+{
+    if (sha256 == m_sha256)
+        return;
+    m_sha256 = sha256;
+    update();
+}
+
+void ImageItem::setPlaceholderLabel(const QString &label)
+{
+    if (label == m_placeholderLabel)
+        return;
+    m_placeholderLabel = label;
+    update();
+}
+
 void ImageItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *)
 {
+    if (!m_placeholderLabel.isEmpty()) {
+        const QRectF r = localRect();
+        painter->fillRect(r, MissingColor);
+        QPen pen(MissingLineColor, 0, Qt::DashLine); // cosmetic: one device pixel
+        painter->setPen(pen);
+        painter->drawRect(r);
+        QFont font = painter->font();
+        font.setPixelSize(int(std::clamp(std::min(r.width(), r.height()) * 0.08, 6.0, 64.0)));
+        painter->setFont(font);
+        painter->setPen(MissingTextColor);
+        painter->drawText(r.adjusted(r.width() * 0.05, 0, -r.width() * 0.05, 0),
+                          Qt::AlignCenter | Qt::TextWordWrap, m_placeholderLabel);
+        return;
+    }
     const qreal lod = option->levelOfDetailFromTransform(painter->worldTransform());
     const qreal dpr = painter->device() ? painter->device()->devicePixelRatioF() : 1.0;
     const QPixmap pixmap = m_cache ? m_cache->best(m_sha256, neededSide(lod, dpr), m_grayscale) : QPixmap();

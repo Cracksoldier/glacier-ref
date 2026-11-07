@@ -23,6 +23,9 @@ struct ImportPlan
     QList<ImportSource> sources;
     QStringList notices;   // skipped entries (folders, online links, ...)
     QString blockingMessage; // set when nothing can be imported
+    // Import as Link (spec §4): file sources are linked instead of embedded.
+    // Only set for explicitly chosen files; drag-and-drop and paste embed.
+    bool linked = false;
 };
 
 // The exact user-facing message for HTTP(S)-only input (spec §4).

@@ -43,6 +43,11 @@ public:
 
     void setData(const ImageItemData &data);
     const QByteArray &sha256() const { return m_sha256; }
+    void setSha256(const QByteArray &sha256);
+    // A labelled placeholder instead of the picture (spec §4: missing or
+    // changed linked files keep their position and size). Empty: the picture.
+    void setPlaceholderLabel(const QString &label);
+    QString placeholderLabel() const { return m_placeholderLabel; }
     QSizeF displaySize() const { return m_displaySize; }
     QRectF crop() const { return m_previewCrop ? *m_previewCrop : m_crop; }
     void setGrayscale(bool grayscale);
@@ -61,6 +66,7 @@ private:
     std::optional<QRectF> m_previewCrop;
     bool m_cropEditing = false;
     bool m_grayscale = false;
+    QString m_placeholderLabel;
     QPointer<ImageCache> m_cache;
 };
 

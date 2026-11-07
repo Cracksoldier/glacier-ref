@@ -32,6 +32,7 @@ struct ImportedImage
     ImageInfo info;
     QImage thumbnail; // longest side <= ThumbnailSide, for seeding the cache
     QStringList notices;
+    QString sourcePath; // absolute path for file sources; empty for pixels
 };
 
 struct ImportFailure
@@ -49,6 +50,7 @@ struct ImportBatchResult
     QList<ImportedImage> images; // in source order
     QList<ImportFailure> failures;
     QStringList notices;  // plan-level notices (skipped folders, links, ...)
+    bool linked = false;  // the plan was an Import as Link
 };
 
 // One per window. Runs bounded import jobs on a shared thread pool: read

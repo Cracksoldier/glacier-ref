@@ -98,8 +98,19 @@ void BoardScene::refreshEntity(const Id &id)
             addItem(item);
             m_items.insert(id, item);
         } else {
-            static_cast<ImageItem *>(item)->setData(*image);
+            auto *imageItem = static_cast<ImageItem *>(item);
+            imageItem->setData(*image);
+            // Link repair can give the item another asset (other bytes).
+            const Asset *asset = m_document->asset(image->assetId);
+            if (asset && asset->sha256 != imageItem->sha256()) {
+                m_imagesByDigest.remove(imageItem->sha256(), imageItem);
+                if (m_cache)
+                    m_cache->registerAsset(asset->sha256, asset->mediaType, asset->orientedSize);
+                imageItem->setSha256(asset->sha256);
+                m_imagesByDigest.insert(asset->sha256, imageItem);
+            }
         }
+        static_cast<ImageItem *>(item)->setPlaceholderLabel(m_placeholders.value(image->assetId));
     } else {
         if (!item) {
             item = new NoteItem(*note);
@@ -197,6 +208,20 @@ void BoardScene::leaveGroup()
     if (GroupItem *g = groupItem(previous))
         g->setSelected(true);
     emit activeGroupChanged(Id());
+}
+
+void BoardScene::setAssetPlaceholder(const Id &assetId, const QString &label)
+{
+    if (label.isEmpty())
+        m_placeholders.remove(assetId);
+    else
+        m_placeholders.insert(assetId, label);
+    if (!m_document)
+        return;
+    for (const ImageItemData &image : m_document->images())
+        if (image.assetId == assetId)
+            if (ImageItem *item = imageItem(image.id))
+                item->setPlaceholderLabel(label);
 }
 
 void BoardScene::onLevelReady(const QByteArray &sha256)

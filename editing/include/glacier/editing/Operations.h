@@ -82,6 +82,19 @@ OpResult paste(const BoardDocument &doc, const Snapshot &fragment, std::optional
                QPointF offset = {});
 OpResult duplicate(const BoardDocument &doc, const QList<Id> &ids, QPointF offset = {20.0, 20.0});
 
+// Linked assets (spec §4, M3.08): Locate, Accept Changed File and Embed swap
+// an asset record. Each old asset is removed and its replacement inserted
+// under a new ID (or an asset with the same digest is reused), and every image
+// that used the old asset uses the new one; one undoable change. With
+// `refit`, unlocked images keep their width and take the new aspect ratio.
+struct AssetReplacement
+{
+    Id oldAssetId;
+    Asset replacement; // its ID is ignored
+    bool refit = false;
+};
+OpResult replaceAssets(const BoardDocument &doc, const QList<AssetReplacement> &replacements);
+
 // Records to put on the clipboard for a selection: top-level entities as they
 // are (groups with their children); selected group children become loose items
 // with board transforms, so the fragment is self-contained.

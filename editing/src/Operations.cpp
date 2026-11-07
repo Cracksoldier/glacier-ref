@@ -817,6 +817,53 @@ OpResult paste(const BoardDocument &doc, const Snapshot &fragment, std::optional
     return r;
 }
 
+OpResult replaceAssets(const BoardDocument &doc, const QList<AssetReplacement> &replacements)
+{
+    OpResult r;
+    DocumentChange change;
+    QHash<Id, Id> target;    // old asset -> new asset
+    QHash<Id, bool> refit;   // old asset -> refit images
+    QHash<Id, QSize> sizes;  // new asset -> oriented size
+    QHash<QByteArray, Id> inserted;
+    for (const AssetReplacement &rep : replacements) {
+        const Asset *old = doc.asset(rep.oldAssetId);
+        if (!old || target.contains(rep.oldAssetId)) {
+            r.error = u"the image's asset no longer exists"_s;
+            return r;
+        }
+        Asset replacement = rep.replacement;
+        const Asset *existing = doc.assetByDigest(replacement.sha256);
+        if (existing && existing->id != old->id && !target.contains(existing->id)) {
+            target.insert(old->id, existing->id); // same bytes are already on the board
+            sizes.insert(existing->id, existing->orientedSize);
+        } else if (const auto it = inserted.constFind(replacement.sha256); it != inserted.cend()) {
+            target.insert(old->id, *it);
+        } else {
+            replacement.id = Id::generate();
+            change.insert.assets.append(replacement);
+            inserted.insert(replacement.sha256, replacement.id);
+            target.insert(old->id, replacement.id);
+            sizes.insert(replacement.id, replacement.orientedSize);
+            r.created.append(replacement.id);
+        }
+        refit.insert(old->id, rep.refit);
+        change.remove.append(old->id);
+    }
+    for (const ImageItemData &image : doc.images()) {
+        const auto it = target.constFind(image.assetId);
+        if (it == target.cend())
+            continue;
+        ImageItemData updated = image;
+        updated.assetId = *it;
+        const QSize size = sizes.value(*it);
+        if (refit.value(image.assetId) && !isLocked(doc, image.id) && size.width() > 0 && size.height() > 0)
+            updated.displaySize.setHeight(updated.displaySize.width() * size.height() / size.width());
+        change.update.images.append(updated);
+    }
+    r.change = change;
+    return r;
+}
+
 OpResult duplicate(const BoardDocument &doc, const QList<Id> &ids, QPointF offset)
 {
     QList<Id> units;

@@ -44,6 +44,12 @@ public:
 
     bool grayscale() const { return m_grayscale; }
 
+    // Shows images of an asset as labelled placeholders (missing or changed
+    // linked files); an empty label shows the picture again. Kept per asset
+    // ID, so undo/redo of link repairs shows the right state.
+    void setAssetPlaceholder(const Id &assetId, const QString &label);
+    QString assetPlaceholder(const Id &assetId) const { return m_placeholders.value(assetId); }
+
     // Backward-compatible name used by M1 code and tests.
     QList<Id> selectedItemIds() const { return selectedIds(); }
 
@@ -66,6 +72,7 @@ private:
     QMultiHash<QByteArray, ImageItem *> m_imagesByDigest;
     Id m_activeGroup;
     bool m_grayscale = false;
+    QHash<Id, QString> m_placeholders; // asset ID -> label
 };
 
 } // namespace glacier::canvas

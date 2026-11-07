@@ -141,6 +141,7 @@ private slots:
         QTest::newRow("save") << u"Save"_s << QKeySequence(Qt::CTRL | Qt::Key_S);
         QTest::newRow("save as") << u"SaveAs"_s << QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S);
         QTest::newRow("import") << u"ImportImages"_s << QKeySequence(Qt::CTRL | Qt::Key_I);
+        QTest::newRow("import as link") << u"ImportAsLink"_s << QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_I);
         QTest::newRow("close") << u"CloseWindow"_s << QKeySequence(Qt::CTRL | Qt::Key_W);
         QTest::newRow("undo") << u"Undo"_s << QKeySequence(Qt::CTRL | Qt::Key_Z);
         QTest::newRow("redo") << u"Redo"_s << QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Z);

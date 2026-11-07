@@ -72,6 +72,11 @@ public:
     // Save As without a dialog.
     void saveAs(const QString &path, std::function<void(bool)> done = {});
 
+    // State of a linked asset's file (Available when not known otherwise).
+    persistence::LinkState linkState(const Id &assetId) const;
+    // Locate without the file dialog: links the selected image to `file`.
+    void locateLinkTo(const QString &file);
+
     // Starts importing a plan, placing results around `anchor` (board coords).
     void importPlan(const io::ImportPlan &plan, QPointF anchor);
     // Builds the context menu for the current selection (also used by tests).
@@ -83,6 +88,7 @@ signals:
     void copyImageFinished(bool ok);
     void boardLoaded(bool ok);
     void saveFinished(bool ok);
+    void linksChecked(); // a Reload or Locate check finished (tests)
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -112,6 +118,18 @@ private:
     QByteArray renderPreview() const;
     QString displayFileName() const;
     void importImagesFromDialog();
+    void importLinkedFromDialog();
+    // Linked assets (spec §4, M3.07-M3.08).
+    void setLinkState(const Id &assetId, const persistence::LinkCheck &check);
+    QList<Id> selectedLinkedAssets() const;
+    void checkLinks(const QList<Id> &assetIds, const QStringList &paths,
+                    std::function<void(QList<persistence::LinkCheck>)> done);
+    void locateLink();
+    void reloadLinks();
+    void acceptLinkChanges();
+    void embedLinks(bool all);
+    void showLinkSummary();
+    void warnAboutAbsoluteLinks(const persistence::BoardContent &content, const QString &path);
     void importFolderFromDialog();
     void cut();
     void copy();
@@ -148,6 +166,7 @@ private:
     bool m_closeWhenSaved = false;
     bool m_closeConfirmed = false;
     bool m_closeIfLoadFails = false; // a window opened just for loading a board
+    QHash<Id, persistence::LinkCheck> m_linkStates; // linked assets; Available when absent
 };
 
 } // namespace glacier

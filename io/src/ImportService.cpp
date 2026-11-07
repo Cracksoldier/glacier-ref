@@ -55,6 +55,7 @@ quint64 ImportService::start(const ImportPlan &plan, const Id &documentToken, QP
     batch.result.documentToken = documentToken;
     batch.result.anchor = anchor;
     batch.result.notices = plan.notices;
+    batch.result.linked = plan.linked;
     batch.cancelled = std::make_shared<std::atomic_bool>(false);
     batch.outcomes.resize(plan.sources.size());
 
@@ -181,6 +182,8 @@ ImportService::JobOutcome ImportService::runJob(const ImportSource &source,
     image.info = *probe.info;
     image.thumbnail = std::move(thumbnail);
     image.notices = probe.notices;
+    if (source.kind == ImportSource::Kind::File)
+        image.sourcePath = QFileInfo(source.filePath).absoluteFilePath();
     outcome.image = std::move(image);
     return outcome;
 }

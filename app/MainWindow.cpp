@@ -8,6 +8,7 @@
 #include "glacier/core/AppInfo.h"
 #include "glacier/core/BatchLayout.h"
 #include "glacier/core/BoardDocument.h"
+#include "glacier/core/LinkPaths.h"
 #include "glacier/core/SessionAssetStore.h"
 #include "glacier/editing/ClipboardFragment.h"
 #include "glacier/editing/CommandController.h"
@@ -206,6 +207,8 @@ void MainWindow::createActions()
     file->addSeparator();
     addAction(file, u"ImportImages"_s, tr("&Import Images…"), {key(Qt::CTRL | Qt::Key_I)});
     on(u"ImportImages"_s, &MainWindow::importImagesFromDialog);
+    addAction(file, u"ImportAsLink"_s, tr("Import as &Link…"), {key(Qt::CTRL | Qt::SHIFT | Qt::Key_I)});
+    on(u"ImportAsLink"_s, &MainWindow::importLinkedFromDialog);
     addAction(file, u"ImportFolder"_s, tr("Import &Folder…"));
     on(u"ImportFolder"_s, &MainWindow::importFolderFromDialog);
     file->addSeparator();
@@ -342,6 +345,19 @@ void MainWindow::createActions()
         edit(id, [this, o] { return ops::zOrder(*m_document, selection(), o); }, tr("Change Stacking Order"));
     }
     board->addSeparator();
+    QMenu *links = board->addMenu(tr("Lin&ks"));
+    addAction(links, u"LocateLink"_s, tr("&Locate Linked File…"));
+    on(u"LocateLink"_s, &MainWindow::locateLink);
+    addAction(links, u"ReloadLink"_s, tr("&Reload Linked File"));
+    on(u"ReloadLink"_s, &MainWindow::reloadLinks);
+    addAction(links, u"AcceptLinkChange"_s, tr("&Accept Changed File"));
+    on(u"AcceptLinkChange"_s, &MainWindow::acceptLinkChanges);
+    links->addSeparator();
+    addAction(links, u"EmbedLink"_s, tr("&Embed Linked Image"));
+    on(u"EmbedLink"_s, [this] { embedLinks(false); });
+    addAction(links, u"EmbedAllLinks"_s, tr("Embed A&ll Linked Images"));
+    on(u"EmbedAllLinks"_s, [this] { embedLinks(true); });
+    board->addSeparator();
     addAction(board, u"Background"_s, tr("Board &Background…"));
     on(u"Background"_s, &MainWindow::chooseBackground);
 
@@ -392,6 +408,9 @@ QMenu *MainWindow::createContextMenu(QWidget *parent)
             add(id);
         menu->addSeparator();
         for (const QString &id : {u"Crop"_s, u"ResetCrop"_s, u"FlipHorizontal"_s, u"FlipVertical"_s, u"NoteStyle"_s})
+            add(id);
+        menu->addSeparator();
+        for (const QString &id : {u"LocateLink"_s, u"ReloadLink"_s, u"AcceptLinkChange"_s, u"EmbedLink"_s})
             add(id);
         menu->addSeparator();
         for (const QString &id : {u"Group"_s, u"Ungroup"_s, u"RenameGroup"_s, u"ToggleLock"_s})
@@ -463,6 +482,21 @@ void MainWindow::updateActionStates()
     for (const QString &id : {u"Raise"_s, u"Lower"_s, u"BringToFront"_s, u"SendToBack"_s})
         set(id, editable);
     set(u"FitSelection"_s, any);
+    int linked = 0, linkedAvailable = 0, linkedChanged = 0;
+    for (const Id &assetId : selectedLinkedAssets()) {
+        ++linked;
+        const persistence::LinkState state = linkState(assetId);
+        linkedAvailable += state == persistence::LinkState::Available;
+        linkedChanged += state == persistence::LinkState::Changed;
+    }
+    bool anyLinkedAvailable = false;
+    for (const Asset &a : doc.assets())
+        anyLinkedAvailable = anyLinkedAvailable || (a.linked && linkState(a.id) == persistence::LinkState::Available);
+    set(u"LocateLink"_s, linked == 1);
+    set(u"ReloadLink"_s, linked > 0);
+    set(u"AcceptLinkChange"_s, linkedChanged > 0);
+    set(u"EmbedLink"_s, linkedAvailable > 0);
+    set(u"EmbedAllLinks"_s, anyLinkedAvailable);
     // Read-only boards can't be saved in place (spec §5); Save As can.
     set(u"Save"_s, !m_readOnly && !m_saving && !m_loading);
     set(u"SaveAs"_s, !m_saving && !m_loading);
@@ -592,6 +626,9 @@ void MainWindow::applyLoaded(const QString &path, persistence::LoadResult result
         m_lock.reset();
         m_readOnly = true;
     }
+    m_linkStates.clear();
+    for (auto it = result.links.cbegin(); it != result.links.cend(); ++it)
+        setLinkState(it.key(), it.value());
     m_view->setZoom(result.content->zoom, QPointF(m_view->viewport()->rect().center()));
     m_view->centerOn(result.content->viewCenter);
     QSettings().setValue(LastBoardDirectoryKey, QFileInfo(path).absolutePath());
@@ -601,6 +638,7 @@ void MainWindow::applyLoaded(const QString &path, persistence::LoadResult result
     if (m_readOnly)
         showReadOnlyNotice(lock->holder, lock->status == persistence::DocumentLock::Status::Unavailable
                                              ? lock->error : QString());
+    showLinkSummary();
 }
 
 void MainWindow::showReadOnlyNotice(const persistence::DocumentLock::Holder &holder, const QString &reason)
@@ -818,6 +856,7 @@ void MainWindow::finishSave(const persistence::SaveResult &result, const QString
         m_document->setMetadata(metadata);
         m_controller->markClean(marker);
         QSettings().setValue(LastBoardDirectoryKey, QFileInfo(path).absolutePath());
+        warnAboutAbsoluteLinks(content, path);
     } else {
         QMessageBox box(QMessageBox::Critical, tr("Save"),
                         tr("“%1” could not be saved.").arg(QFileInfo(path).fileName()), QMessageBox::Ok, this);
@@ -937,6 +976,264 @@ void MainWindow::importFolderFromDialog()
         return;
     settings.setValue(u"import/lastDirectory"_s, folder);
     importPlan(io::planForPaths({folder}), m_view->viewCenter());
+}
+
+// --- Linked assets -------------------------------------------------------------------
+
+void MainWindow::importLinkedFromDialog()
+{
+    QSettings settings;
+    const QString lastDir = settings.value(u"import/lastDirectory"_s).toString();
+    const QStringList files =
+        QFileDialog::getOpenFileNames(this, tr("Import as Link"), lastDir, io::fileDialogFilter());
+    if (files.isEmpty())
+        return;
+    settings.setValue(u"import/lastDirectory"_s, QFileInfo(files.first()).absolutePath());
+    io::ImportPlan plan = io::planForPaths(files);
+    plan.linked = true;
+    importPlan(plan, m_view->viewCenter());
+}
+
+persistence::LinkState MainWindow::linkState(const Id &assetId) const
+{
+    const auto it = m_linkStates.constFind(assetId);
+    return it == m_linkStates.cend() ? persistence::LinkState::Available : it->state;
+}
+
+void MainWindow::setLinkState(const Id &assetId, const persistence::LinkCheck &check)
+{
+    m_linkStates.insert(assetId, check);
+    const Asset *asset = m_document->asset(assetId);
+    const QString name = asset ? QFileInfo(asset->linkPath).fileName() : QString();
+    QString label;
+    if (check.state == persistence::LinkState::Missing)
+        label = tr("Missing linked file\n%1").arg(name);
+    else if (check.state == persistence::LinkState::Changed)
+        label = tr("Linked file changed on disk\n%1\n\nBoard ▸ Links ▸ Accept Changed File").arg(name);
+    m_scene->setAssetPlaceholder(assetId, label);
+    updateActionStates();
+}
+
+QList<Id> MainWindow::selectedLinkedAssets() const
+{
+    QList<Id> assets;
+    auto addImage = [this, &assets](const Id &imageId) {
+        if (const ImageItemData *image = m_document->image(imageId))
+            if (const Asset *asset = m_document->asset(image->assetId); asset && asset->linked
+                && !assets.contains(asset->id))
+                assets.append(asset->id);
+    };
+    for (const Id &id : selection()) {
+        addImage(id);
+        if (const GroupData *g = m_document->group(id))
+            for (const Id &child : g->children)
+                addImage(child);
+    }
+    return assets;
+}
+
+void MainWindow::checkLinks(const QList<Id> &assetIds, const QStringList &paths,
+                            std::function<void(QList<persistence::LinkCheck>)> done)
+{
+    QList<QByteArray> expected;
+    for (const Id &id : assetIds)
+        expected.append(m_document->asset(id) ? m_document->asset(id)->sha256 : QByteArray());
+    const auto store = m_services.store();
+    const Limits limits = m_services.limits();
+    const Id token = m_document->documentToken();
+    auto *watcher = new QFutureWatcher<QList<persistence::LinkCheck>>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, token, done = std::move(done)] {
+        watcher->deleteLater();
+        if (token == m_document->documentToken())
+            done(watcher->result());
+        emit linksChecked();
+    });
+    watcher->setFuture(QtConcurrent::run(m_services.pool(), [paths, expected, store, limits] {
+        QList<persistence::LinkCheck> checks;
+        for (qsizetype i = 0; i < paths.size(); ++i)
+            checks.append(persistence::checkLink(paths[i], expected[i], *store, limits));
+        return checks;
+    }));
+}
+
+void MainWindow::locateLink()
+{
+    finishModes();
+    const QList<Id> assets = selectedLinkedAssets();
+    if (assets.size() != 1)
+        return;
+    const Asset *asset = m_document->asset(assets.first());
+    const QString start = QFileInfo(asset->linkPath).absolutePath();
+    const QString chosen = QFileDialog::getOpenFileName(
+        this, tr("Locate “%1”").arg(QFileInfo(asset->linkPath).fileName()),
+        QFileInfo::exists(start) ? start : QSettings().value(u"import/lastDirectory"_s).toString(),
+        io::fileDialogFilter());
+    if (!chosen.isEmpty())
+        locateLinkTo(chosen);
+}
+
+void MainWindow::locateLinkTo(const QString &file)
+{
+    const QList<Id> assets = selectedLinkedAssets();
+    if (assets.size() != 1)
+        return;
+    const QString path = link_paths::normalize(QFileInfo(file).absoluteFilePath());
+    const Id assetId = assets.first();
+    checkLinks({assetId}, {path}, [this, assetId, path](const QList<persistence::LinkCheck> &checks) {
+        const Asset *old = m_document->asset(assetId);
+        if (!old || checks.isEmpty())
+            return;
+        const persistence::LinkCheck &check = checks.first();
+        if (check.state == persistence::LinkState::Missing) {
+            showMessage(tr("Locate Linked File"), tr("The file can't be used."), check.reason);
+            return;
+        }
+        Asset replacement = *old;
+        replacement.linkPath = path;
+        bool refit = false;
+        if (check.state == persistence::LinkState::Changed) {
+            QMessageBox box(QMessageBox::Question, tr("Locate Linked File"),
+                            tr("“%1” is a different image than the one on the board.")
+                                .arg(QFileInfo(path).fileName()),
+                            QMessageBox::Yes | QMessageBox::Cancel, this);
+            box.setObjectName(u"locateDifferentBox"_s);
+            box.setInformativeText(tr("Use it anyway? The images keep their position and width."));
+            if (box.exec() != QMessageBox::Yes)
+                return;
+            replacement.sha256 = check.sha256;
+            replacement.mediaType = check.mediaType;
+            replacement.orientedSize = check.orientedSize;
+            replacement.byteLength = check.byteLength;
+            refit = true;
+        }
+        if (run(ops::replaceAssets(*m_document, {{assetId, replacement, refit}}), tr("Locate Linked File")))
+            if (const Asset *now = m_document->assetByDigest(replacement.sha256); now && now->linked)
+                setLinkState(now->id, persistence::LinkCheck{persistence::LinkState::Available, {}, {}, {}, {}, 0});
+    });
+}
+
+void MainWindow::reloadLinks()
+{
+    finishModes();
+    const QList<Id> assets = selectedLinkedAssets();
+    QStringList paths;
+    for (const Id &id : assets)
+        paths.append(m_document->asset(id)->linkPath);
+    checkLinks(assets, paths, [this, assets](const QList<persistence::LinkCheck> &checks) {
+        int changed = 0;
+        for (qsizetype i = 0; i < checks.size() && i < assets.size(); ++i) {
+            if (!m_document->asset(assets[i]))
+                continue;
+            setLinkState(assets[i], checks[i]);
+            changed += checks[i].state == persistence::LinkState::Changed;
+        }
+        if (changed > 0)
+            m_view->showToast(tr("%n linked file(s) changed on disk. Use Board ▸ Links ▸ Accept Changed File "
+                                 "to show the new version.", nullptr, changed));
+    });
+}
+
+void MainWindow::acceptLinkChanges()
+{
+    finishModes();
+    QList<ops::AssetReplacement> replacements;
+    QList<QByteArray> digests;
+    for (const Id &id : selectedLinkedAssets()) {
+        const auto it = m_linkStates.constFind(id);
+        if (it == m_linkStates.cend() || it->state != persistence::LinkState::Changed)
+            continue;
+        Asset replacement = *m_document->asset(id);
+        replacement.sha256 = it->sha256;
+        replacement.mediaType = it->mediaType;
+        replacement.orientedSize = it->orientedSize;
+        replacement.byteLength = it->byteLength;
+        replacements.append({id, replacement, true});
+        digests.append(it->sha256);
+    }
+    if (replacements.isEmpty())
+        return;
+    if (!run(ops::replaceAssets(*m_document, replacements), tr("Accept Changed File")))
+        return;
+    for (const QByteArray &sha : std::as_const(digests))
+        if (const Asset *now = m_document->assetByDigest(sha); now && now->linked)
+            setLinkState(now->id, persistence::LinkCheck{persistence::LinkState::Available, {}, {}, {}, {}, 0});
+}
+
+void MainWindow::embedLinks(bool all)
+{
+    finishModes();
+    QList<Id> candidates;
+    if (all) {
+        for (const Asset &a : m_document->assets())
+            if (a.linked)
+                candidates.append(a.id);
+    } else {
+        candidates = selectedLinkedAssets();
+    }
+    QList<ops::AssetReplacement> replacements;
+    int unavailable = 0;
+    for (const Id &id : std::as_const(candidates)) {
+        if (linkState(id) != persistence::LinkState::Available || !m_services.store()->contains(m_document->asset(id)->sha256)) {
+            ++unavailable;
+            continue;
+        }
+        Asset replacement = *m_document->asset(id);
+        replacement.linked = false;
+        replacement.linkPath.clear();
+        replacements.append({id, replacement, false});
+    }
+    if (!replacements.isEmpty())
+        run(ops::replaceAssets(*m_document, replacements),
+            replacements.size() == 1 ? tr("Embed Linked Image") : tr("Embed Linked Images"));
+    if (unavailable > 0)
+        m_view->showToast(tr("%n missing or changed file(s) can't be embedded. Locate or reload them first.",
+                             nullptr, unavailable));
+}
+
+void MainWindow::showLinkSummary()
+{
+    QStringList missing;
+    QStringList changed;
+    for (auto it = m_linkStates.cbegin(); it != m_linkStates.cend(); ++it) {
+        const Asset *asset = m_document->asset(it.key());
+        if (!asset)
+            continue;
+        if (it->state == persistence::LinkState::Missing)
+            missing.append(asset->linkPath + u" — "_s + it->reason);
+        else if (it->state == persistence::LinkState::Changed)
+            changed.append(asset->linkPath);
+    }
+    if (missing.isEmpty() && changed.isEmpty())
+        return;
+    QStringList summary;
+    if (!missing.isEmpty())
+        summary.append(tr("%n linked image(s) could not be found.", nullptr, int(missing.size())));
+    if (!changed.isEmpty())
+        summary.append(tr("%n linked image(s) changed on disk and are not shown until you accept the change.",
+                          nullptr, int(changed.size())));
+    QStringList details;
+    if (!missing.isEmpty())
+        details << tr("Missing:") << missing;
+    if (!changed.isEmpty())
+        details << tr("Changed:") << changed;
+    showMessage(tr("Linked Images"),
+                summary.join(u' ') + u"\n\n"_s
+                    + tr("Select an image and use Board ▸ Links to locate, reload, accept or embed it."),
+                details.join(u'\n'));
+}
+
+void MainWindow::warnAboutAbsoluteLinks(const persistence::BoardContent &content, const QString &path)
+{
+    QSet<Id> used;
+    for (const ImageItemData &image : content.snapshot.images)
+        used.insert(image.assetId);
+    int absolute = 0;
+    for (const Asset &a : content.snapshot.assets)
+        if (a.linked && used.contains(a.id) && !link_paths::toStored(a.linkPath, QFileInfo(path).absolutePath()).relative)
+            ++absolute;
+    if (absolute > 0)
+        m_view->showToast(tr("%n linked image(s) are stored with an absolute path and won't be found if the board "
+                             "is moved to another computer.", nullptr, absolute));
 }
 
 // --- Clipboard ---------------------------------------------------------------------
@@ -1161,7 +1458,18 @@ void MainWindow::onBatchFinished(const io::ImportBatchResult &result)
         const io::ImportedImage &image = result.images[i];
         m_services.cache()->registerAsset(image.sha256, image.mediaType, image.orientedSize);
         m_services.cache()->insert(image.sha256, image.thumbnail);
-        newImages.append({image.sha256, image.mediaType, image.orientedSize, image.byteLength, positions[i], {}, false, {}});
+        NewImage newImage{image.sha256, image.mediaType, image.orientedSize, image.byteLength, positions[i], {}, false, {}};
+        if (result.linked && !image.sourcePath.isEmpty()) {
+            const Asset *existing = m_document->assetByDigest(image.sha256);
+            if (existing && !existing->linked) {
+                notices.append(image.displayName + u": "_s
+                               + tr("the same image is already embedded in the board, so it stays embedded"));
+            } else {
+                newImage.linked = true;
+                newImage.linkPath = link_paths::normalize(image.sourcePath);
+            }
+        }
+        newImages.append(newImage);
         for (const QString &notice : image.notices)
             notices.append(image.displayName + u": "_s + notice);
     }
