@@ -27,6 +27,7 @@
 #include <QMimeData>
 #include <QObject>
 #include <QPointer>
+#include <QProgressDialog>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTimer>
@@ -386,10 +387,36 @@ private slots:
         MainWindow busy(*m_services);
         QVERIFY(busy.controller()->run(ops::createNote(*busy.document(), {0, 0}, u"x"_s), u"Note"_s));
         QVERIFY(!busy.isReusable());
-        answer(u"openFailedBox"_s, QMessageBox::Ok);
+        // Keep the error box open longer than the progress dialog's delay: the
+        // progress dialog must already be deleted, so it can't pop up over the
+        // box (M3 demo step 23; the app's main loop doesn't run a pending
+        // deleteLater while the box runs its own loop).
+        bool progressShown = false;
+        auto *timer = new QTimer;
+        timer->setInterval(20);
+        int ticks = 0;
+        connect(timer, &QTimer::timeout, timer, [timer, &ticks, &progressShown] {
+            const auto widgets = QApplication::topLevelWidgets();
+            for (QWidget *w : widgets) {
+                auto *box = qobject_cast<QMessageBox *>(w);
+                if (!box || box->objectName() != u"openFailedBox"_s || !box->isVisible())
+                    continue;
+                if (++ticks < 30) // about 600 ms
+                    return;
+                for (QWidget *other : widgets)
+                    if (qobject_cast<QProgressDialog *>(other))
+                        progressShown = true; // must already be deleted, not just hidden
+                timer->stop();
+                timer->deleteLater();
+                box->button(QMessageBox::Ok)->click();
+                return;
+            }
+        });
+        timer->start();
         QPointer<MainWindow> opened = MainWindow::openBoard(*m_services, path, &busy);
         QVERIFY(opened && opened.data() != &busy);
         QTRY_VERIFY_WITH_TIMEOUT(opened.isNull(), 30000); // closed after the error
+        QVERIFY(!progressShown);
         QCOMPARE(busy.document()->itemCount(), 1);
     }
 

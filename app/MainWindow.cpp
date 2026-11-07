@@ -587,7 +587,10 @@ void MainWindow::loadBoard(const QString &path)
     connect(watcher, &QFutureWatcherBase::progressRangeChanged, dialog, &QProgressDialog::setRange);
     connect(watcher, &QFutureWatcherBase::progressValueChanged, dialog, &QProgressDialog::setValue);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, dialog, absolute, lock] {
-        dialog->deleteLater();
+        // Delete now, not later: a message box shown next runs its own event
+        // loop, where a pending deleteLater would not run and the (window-modal)
+        // progress dialog could still appear and block the box.
+        delete dialog;
         watcher->deleteLater();
         applyLoaded(absolute, watcher->result(), lock);
     });
@@ -855,7 +858,7 @@ void MainWindow::startSave(const QString &path, std::shared_ptr<persistence::Doc
     const persistence::BoardContent content = request.content;
     connect(watcher, &QFutureWatcherBase::finished, this,
             [this, watcher, dialog, path, content, marker, newLock, done = std::move(done)] {
-                dialog->deleteLater();
+                delete dialog; // before any message box (see loadBoard)
                 watcher->deleteLater();
                 finishSave(watcher->result(), path, content, marker, newLock, done);
             });
@@ -1599,7 +1602,7 @@ void MainWindow::onImportProgress(quint64 batchId, int done, int total)
 void MainWindow::onBatchFinished(const io::ImportBatchResult &result)
 {
     if (QPointer<QProgressDialog> dialog = m_progress.take(result.batchId))
-        dialog->deleteLater();
+        delete dialog.data(); // before any message box (see loadBoard)
     if (result.documentToken != m_document->documentToken())
         return; // stale: the document was replaced since the batch started
 
