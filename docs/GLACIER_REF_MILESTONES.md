@@ -3,7 +3,7 @@
 Version: 1.1  
 Date: 2026-11-06  
 Source: `GLACIER_REF_SPECIFICATION.md`, version 1.1  
-Status: M0, M1 and M2 complete; M3 in progress
+Status: M0, M1, M2 and M3 complete; M4 not started
 
 ## 1. Purpose and working rules
 
@@ -28,7 +28,7 @@ The target is a focused offline reference-board application using C++20, Qt 6 Wi
 | M0 — Foundation | Reproducible cross-platform application skeleton | None | Build prerequisites for all gates | Complete |
 | M1 — Canvas and import | Usable image board with bounded decoding | M0 | Early A01, A08, A10, A11 checks | Complete |
 | M2 — Editing | Complete v1 board editing and undo/redo | M1 | A01–A02 | Complete |
-| M3 — Durable boards | Portable saving, links, recovery, safe loading | M2 | A03–A07 | In progress |
+| M3 — Durable boards | Portable saving, links, recovery, safe loading | M2 | A03–A07 | Complete |
 | M4 — Desktop polish | Reliable minimal UI, native behavior, performance | M3 | A08, A10, A11 | Not started |
 | M5 — Distribution | Tested installer, portable ZIP, AppImage, Flatpak, macOS build | M4 | A09, A12 | Not started |
 | M6 — Release candidate | Validated, documented v1 candidate | M0–M5 | Full A01–A12 regression | Not started |
@@ -156,7 +156,7 @@ Documented file format, serializer, linked-asset management, recovery UI, and pe
 
 ### Completion criteria
 
-- [ ] **A03 passes:** Embedded boards round-trip and move between Linux and Windows without their source images.
+- [x] **A03 passes:** Embedded boards round-trip and move between Linux and Windows without their source images.
 - [x] **A04 passes:** Linked assets rebase correctly and missing/changed links can be repaired or embedded.
 - [x] **A05 passes:** Failed/interrupted saves retain the previous valid board; asynchronous saves preserve dirty-state accuracy.
 - [x] **A06 passes:** Forced termination yields the latest completed recovery for named and unnamed boards.

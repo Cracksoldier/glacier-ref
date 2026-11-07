@@ -15,10 +15,10 @@ files.
 
 ## Status
 
-In development. Milestones M0 (foundation), M1 (canvas and import) and M2
-(editing) are complete. M3 (durable boards: the documented `.glacierref`
-format, atomic saves, document locks, linked images with repair, and crash
-recovery) is implemented and in validation. See the
+In development. Milestones M0 (foundation), M1 (canvas and import), M2
+(editing) and M3 (durable boards: the documented `.glacierref` format, atomic
+saves, document locks, linked images with repair, and crash recovery) are
+complete. See the
 [milestones](docs/GLACIER_REF_MILESTONES.md) and the
 [specification](docs/GLACIER_REF_SPECIFICATION.md).
 

@@ -4,7 +4,7 @@ Release build: `./build/dev-release/app/glacier-ref` on CachyOS Wayland, plus th
 Recovery data lives in `~/.local/share/GlacierRef/GlacierRef/recovery` (Windows: `%APPDATA%\GlacierRef\GlacierRef\recovery`).
 Mark each row ✅ / ⚠️ / ❌ with a short note.
 
-Result (2026-11-07, maintainer; CachyOS KDE Plasma Wayland and the Windows machine; build `6ed4d17`): **23/24 pass, 1 issue** (step 23), fixed afterwards; re-check of step 23 pending.
+Result (2026-11-07, maintainer; CachyOS KDE Plasma Wayland and the Windows machine; build `6ed4d17`): **23/24 pass, 1 issue** (step 23), fixed in `092dc76` and re-checked by the maintainer: **24/24 pass.**
 
 Preparation: a folder `~/demo/refs` with 3–4 images outside the board folder, and a board folder `~/demo/boards`.
 
@@ -32,5 +32,5 @@ Preparation: a folder `~/demo/refs` with 3–4 images outside the board folder, 
 | 20 | Repeat 15 + 17 with one board, choose Open Original, quit, start again, choose Discard… | Open Original shows the saved version and the recovery is offered again; Discard removes it for good | ✅| |
 | 21 | Close a window with unsaved changes; try Cancel, then Save, then Discard on separate attempts | Cancel keeps the window; Save saves (asking for a name if untitled) and closes; Discard closes | ✅| |
 | 22 | Drag `demo.glacierref` from Dolphin onto an empty window | The board opens | ✅| |
-| 23 | Rename a JPEG to `broken.glacierref` and open it | Clear error ("could not be opened"), the app keeps running |✅ | the app keeps running but clicking on "ok" does not not close the dialog, first the winddow with the progress bar needs to be closed via clicking on "x" → Cause: the opening progress dialog was only scheduled for deletion and appeared (window-modal) over the error box. Fixed: progress dialogs are deleted before any message box. Re-check pending |
+| 23 | Rename a JPEG to `broken.glacierref` and open it | Clear error ("could not be opened"), the app keeps running |✅ | the app keeps running but clicking on "ok" does not not close the dialog, first the winddow with the progress bar needs to be closed via clicking on "x" → Cause: the opening progress dialog was only scheduled for deletion and appeared (window-modal) over the error box. Fixed in `092dc76`: progress dialogs are deleted before any message box. Re-check: ✅ |
 | 24 | Open a board from a folder you can't write to (e.g. copy it to a read-only USB stick or `chmod a-w` a folder) | Opens read-only with "the folder is not writable" | ✅| |
