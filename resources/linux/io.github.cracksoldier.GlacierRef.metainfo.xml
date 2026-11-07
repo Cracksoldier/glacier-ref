@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.cracksoldier.GlacierRef</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Glacier Ref</name>
+  <summary>Collect and arrange visual references offline</summary>
+  <description>
+    <p>
+      Glacier Ref is a minimal reference board for artists, 3D modelers, developers and designers.
+      Drop in images, arrange, crop, flip and annotate them, and keep the board beside your creative tools.
+      It works fully offline and saves portable board files.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.cracksoldier.GlacierRef.desktop</launchable>
+  <url type="homepage">https://github.com/Cracksoldier/glacier-ref</url>
+  <url type="bugtracker">https://github.com/Cracksoldier/glacier-ref/issues</url>
+  <developer id="io.github.cracksoldier">
+    <name>Cracksoldier</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <provides>
+    <mediatype>application/x-glacierref</mediatype>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-11-07" type="development">
+      <description>
+        <p>Test builds.</p>
+      </description>
+    </release>
+  </releases>
+</component>

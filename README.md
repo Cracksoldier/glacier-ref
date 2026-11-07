@@ -26,7 +26,7 @@ offline help) is implemented and in validation. See the
 
 ## Building
 
-Requirements: CMake 3.21+, Ninja, a C++20 compiler, and Qt 6.12+ with the
+Requirements: CMake 3.21+, Ninja, a C++20 compiler, and Qt 6.11+ with the
 Svg and Image Formats modules.
 
 ```sh

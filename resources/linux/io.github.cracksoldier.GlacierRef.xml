@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Board file type (docs/FORMAT.md), exported by the Flatpak and the AppImage. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-glacierref">
+    <comment>Glacier Ref board</comment>
+    <sub-class-of type="application/zip"/>
+    <glob pattern="*.glacierref"/>
+    <icon name="io.github.cracksoldier.GlacierRef"/>
+  </mime-type>
+</mime-info>

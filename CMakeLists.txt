@@ -13,10 +13,11 @@ include(GlacierCompilerSettings)
 option(GLACIER_BUILD_TESTS "Build the Qt Test suite" ON)
 option(GLACIER_BUILD_TOOLS "Build developer tools (dataset generator, benchmark)" ON)
 
-# The minimum Qt version equals the CI pin (.github/qt-version.env). CI only
-# builds against the pin, so a lower minimum would be untested. Lower it only
-# together with a CI job that builds against that lower version.
-find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Widgets Svg Concurrent)
+# Minimum Qt: 6.11, the Qt of the Flatpak's KDE runtime (packaging/linux/
+# flatpak), which CI builds and tests against; every other job uses the pin in
+# .github/qt-version.env. Lower it only together with a CI job that builds
+# against that lower version.
+find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Widgets Svg Concurrent)
 qt_standard_project_setup()
 
 add_subdirectory(third_party/miniz)
@@ -32,7 +33,7 @@ if(GLACIER_BUILD_TOOLS)
 endif()
 
 if(GLACIER_BUILD_TESTS)
-    find_package(Qt6 6.12 REQUIRED COMPONENTS Test)
+    find_package(Qt6 6.11 REQUIRED COMPONENTS Test)
     enable_testing()
     include(GlacierTesting)
     add_subdirectory(tests)

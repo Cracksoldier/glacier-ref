@@ -15,7 +15,7 @@ reads.
 | Qt packages | `linux_gcc_64`, `win64_msvc2022_64`, `clang_64` (macOS), each with `qtimageformats` |
 | aqtinstall | 3.3.0 (via install-qt-action; Linux and macOS only) |
 | Windows Qt install | [`tools/ci/fetch_qt_windows.py`](../tools/ci/fetch_qt_windows.py): components `qtbase`, `qtsvg`, `qtimageformats` |
-| Minimum Qt in `find_package` | 6.12 (equal to the pin; lower only with a CI job that builds against the lower version) |
+| Minimum Qt in `find_package` | 6.11: the Qt of the Flatpak's KDE runtime, built and tested by the CI Flatpak job; lower only with a CI job that builds against the lower version |
 | CMake | Minimum 3.21; CI uses the runner image's CMake (version recorded in each job log) |
 
 | Job | Runner | Compiler | Architecture |
@@ -37,6 +37,20 @@ reads.
 install-qt-action itself pins `actions/setup-python` by SHA (v6.3.0,
 `ece7cb06caefa5fff74198d8649806c4678c61a1`). Dependabot proposes SHA updates
 weekly as pull requests.
+
+### Flatpak runtime
+
+The Flatpak takes Qt from the KDE runtime instead of the pin above (spec §6).
+Flathub had no KDE 6.12 runtime yet when the Flatpak was added (2026-11-07),
+so it uses 6.11 and the minimum Qt was lowered to match. Move to
+`org.kde.Platform//6.12` once Flathub publishes it; then the minimum can go
+back to 6.12.
+
+| Item | Pin |
+| --- | --- |
+| Runtime / SDK | `org.kde.Platform` / `org.kde.Sdk` 6.11 (Qt 6.11.3), in [`packaging/linux/flatpak`](../packaging/linux/flatpak) |
+| Build container | `ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11@sha256:b0a8a2acb9e420dd0e3e083ff552bea5a817e17e41532f1d2287ff49ef9aae0e` (by digest; Dependabot does not update it) |
+| `flatpak/flatpak-github-actions/flatpak-builder` | v6.8, `79327416609af08178ad73b352877e51450790b3` |
 
 ### Packaging tools
 

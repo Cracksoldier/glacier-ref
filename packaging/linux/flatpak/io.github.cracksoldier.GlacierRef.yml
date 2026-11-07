@@ -1,0 +1,48 @@
+# Flatpak manifest (M5.06). Qt comes from the KDE runtime, not the CI pin:
+# runtime 6.11 provides Qt 6.11.3 (docs/TOOLCHAIN.md). CI builds this with
+# the test suite (ci.yml) and the Release workflow ships the .flatpak bundle.
+id: io.github.cracksoldier.GlacierRef
+runtime: org.kde.Platform
+runtime-version: "6.11"
+sdk: org.kde.Sdk
+command: glacier-ref
+finish-args:
+  # No --share=network: Glacier Ref is offline by design (spec A10), and the
+  # sandbox enforces it. The Project Website link opens through the portal.
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Atomic sibling saves, document locks and relative linked images need
+  # real directory access, which the document portal does not give (spec §6).
+  # Linked files outside the home directory appear as missing.
+  - --filesystem=home
+modules:
+  - name: glacier-ref
+    buildsystem: cmake-ninja
+    builddir: true
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DGLACIER_BUILD_TOOLS=OFF
+      - -DGLACIER_BUILD_TESTS=ON
+    # The whole suite, offline (the build sandbox has no network). The SDK
+    # may lack the de_AT C locale: build it when localedef can, otherwise
+    # skip only the de_AT entries (other CI jobs run them) and say so.
+    run-tests: true
+    test-commands:
+      - >-
+        mkdir -p "$PWD/locales";
+        if localedef -i de_AT -f UTF-8 "$PWD/locales/de_AT.UTF-8"; then
+        export LOCPATH="$PWD/locales"; ctest --no-tests=error --output-on-failure -j "$FLATPAK_BUILDER_N_JOBS";
+        else echo "::warning::no de_AT locale in the Flatpak SDK; skipping the de_AT test entries";
+        ctest --no-tests=error --output-on-failure -j "$FLATPAK_BUILDER_N_JOBS" -E '[.]de_AT$'; fi
+    sources:
+      - type: dir
+        path: ../../..
+        skip:
+          - .git
+          - build
+          - dist
+          - flatpak_app
+          - .flatpak-builder
+          - repo

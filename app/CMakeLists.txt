@@ -68,4 +68,8 @@ if(UNIX AND NOT APPLE)
     install(FILES "${PROJECT_SOURCE_DIR}/resources/icons/glacier-ref.svg"
         DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
         RENAME io.github.cracksoldier.GlacierRef.svg)
+    install(FILES "${PROJECT_SOURCE_DIR}/resources/linux/io.github.cracksoldier.GlacierRef.xml"
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/mime/packages)
+    install(FILES "${PROJECT_SOURCE_DIR}/resources/linux/io.github.cracksoldier.GlacierRef.metainfo.xml"
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
 endif()

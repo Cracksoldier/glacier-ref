@@ -4,11 +4,12 @@ Requirements on every platform:
 
 - CMake 3.21 or newer, Ninja (Linux/macOS)
 - A C++20 compiler: GCC 13+, Clang 16+, MSVC 2022, or Apple Clang 15+
-- Qt **6.12 or newer** with the modules Core, Gui, Widgets, Svg, Concurrent,
+- Qt **6.11 or newer** with the modules Core, Gui, Widgets, Svg, Concurrent,
   Test, plus the **Qt Image Formats** plugins (WebP, TIFF)
 
-The minimum Qt version equals the CI pin (see [TOOLCHAIN.md](TOOLCHAIN.md)).
-Configure fails with an older Qt. Where a distribution ships an older Qt,
+The minimum Qt is 6.11, the Qt of the Flatpak's KDE runtime, which CI also
+builds and tests against; all other CI jobs use the 6.12.0 pin (see
+[TOOLCHAIN.md](TOOLCHAIN.md)). Configure fails with an older Qt. Where a distribution ships an older Qt,
 install the pinned Qt with [aqtinstall](https://github.com/miurahr/aqtinstall)
 and pass `-DCMAKE_PREFIX_PATH=<qt>/6.12.0/<arch>`.
 
@@ -63,7 +64,7 @@ sudo dnf install cmake ninja-build gcc-c++ glibc-langpack-de \
     qt6-qtbase-devel qt6-qtsvg-devel qt6-qtimageformats
 ```
 
-Then use the same preset commands. If Fedora's Qt is older than 6.12, use the
+Then use the same preset commands. If Fedora's Qt is older than 6.11, use the
 pinned Qt via aqtinstall as described above.
 
 ## Windows 11 (x64)

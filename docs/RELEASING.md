@@ -8,6 +8,7 @@ packages Glacier Ref on all three platforms (M5.01). Packaging scripts live in
 | --- | --- | --- | --- |
 | `glacier-ref-<version>-windows-x64.zip` | `packaging/windows/stage.ps1` | `windows-2025`, MSVC, Qt pin | `cmake --install`, `windeployqt` (no translations, no Mesa or D3D compiler), the MSVC runtime copied app-locally, `LICENSE.txt`, `THIRD_PARTY_NOTICES.md` |
 | `glacier-ref-<version>-linux-x86_64.AppImage` | `packaging/linux/build-appimage.sh` | `ubuntu-24.04`, GCC 14, Qt pin | linuxdeploy with its Qt plugin; xcb plus the native Wayland platform plugins and their shell, decoration and graphics plugins; desktop entry and icon |
+| `glacier-ref-<version>-linux-x86_64.flatpak` | `packaging/linux/flatpak/io.github.cracksoldier.GlacierRef.yml` | flatpak-builder action in the KDE 6.11 container | KDE runtime 6.11 (Qt 6.11.3, fetched from Flathub on install); no network permission, `--filesystem=home`; desktop entry, icon, MIME type and AppStream data |
 | `glacier-ref-<version>-macos-arm64.dmg` | `packaging/macos/build-dmg.sh` | `macos-15`, Apple Clang, Qt pin | `Glacier Ref.app` staged with `macdeployqt`, ad-hoc signed, an Applications link, `LICENSE.txt` |
 
 Each job first runs the full test suite (both locales) on the Release build,
@@ -16,6 +17,9 @@ away and an empty environment**: `--version`, `--check-image-formats` (every v1
 format, WebP and TIFF included, decoded through the shipped plugins) and
 `--platform-info` (the platform plugin loads; xvfb on Linux). The packaging
 scripts also fail if a required plugin or library is missing from the package.
+The Flatpak is built with the test suite inside the SDK sandbox (no network),
+installed from the bundle, checked for the absence of network permission and
+smoke-tested the same way.
 
 **Linux baseline:** Ubuntu 24.04, so the AppImage needs glibc 2.39 or newer
 (Fedora 40+, Ubuntu 24.04+, current Arch/CachyOS). The Qt pin itself is built
@@ -51,9 +55,9 @@ scripts; GitHub Actions are pinned by commit (see [TOOLCHAIN.md](TOOLCHAIN.md)).
 
 ## Not yet covered (M5)
 
+- Flathub submission (a separate maintainer step, spec §6).
 - Windows installer (Inno Setup, M5.03) and the portable marker for the ZIP
   (M5.04): the ZIP currently keeps its data in the user profile.
-- Flatpak bundle (M5.06).
 - Clean-machine validation on Windows 11, Fedora and macOS (M5.02, M5.05,
   M5.07, M5.10), signing and notarization (M5.08), the complete notices and
   source offer for the bundled Qt (M5.09).

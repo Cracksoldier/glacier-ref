@@ -1,6 +1,7 @@
 name: Release
 
-# Builds, tests and packages Glacier Ref for Windows, Linux and macOS
+# Builds, tests and packages Glacier Ref for Windows, Linux (AppImage and
+# Flatpak) and macOS
 # (M5.01 groundwork, docs/RELEASING.md).
 # - A version tag (v0.1.0, v0.1.0-test.1, ...) also creates a draft GitHub
 #   release with every package and SHA256SUMS.txt; publish it by hand.
@@ -123,6 +124,52 @@ jobs:
         with:
           name: glacier-ref-linux-x86_64
           path: dist/*.AppImage
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  flatpak:
+    name: Linux Flatpak (x86_64, KDE 6.11)
+    needs: version
+    runs-on: ubuntu-24.04
+    # The KDE runtime and SDK come preinstalled in the image (pinned by digest).
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11@sha256:b0a8a2acb9e420dd0e3e083ff552bea5a817e17e41532f1d2287ff49ef9aae0e
+      options: --privileged
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Builds and runs the full test suite against the runtime's Qt, then
+      # bundles; the bundle names Flathub as the source of the runtime.
+      - name: Build, test and bundle
+        uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8
+        with:
+          manifest-path: packaging/linux/flatpak/io.github.cracksoldier.GlacierRef.yml
+          bundle: glacier-ref-${{ needs.version.outputs.version }}-linux-x86_64.flatpak
+          branch: stable
+          upload-artifact: false
+
+      - name: Smoke test the installed bundle
+        run: |
+          app=io.github.cracksoldier.GlacierRef
+          flatpak install --user -y --noninteractive "glacier-ref-$VERSION-linux-x86_64.flatpak"
+          permissions="$(flatpak info --show-permissions "$app")"
+          echo "$permissions"
+          if printf '%s\n' "$permissions" | grep -E '^shared=.*network'; then
+            echo "::error::The Flatpak must not have network access (spec A10)"; exit 1
+          fi
+          flatpak run --command=glacier-ref "$app" --check-image-formats
+          xvfb-run -a flatpak run "$app" --version
+          xvfb-run -a flatpak run "$app" --platform-info
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: glacier-ref-linux-flatpak
+          path: glacier-ref-*.flatpak
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -284,7 +331,7 @@ jobs:
   release:
     name: Draft release
     if: github.ref_type == 'tag'
-    needs: [version, linux, windows, macos]
+    needs: [version, linux, flatpak, windows, macos]
     runs-on: ubuntu-24.04
     permissions:
       contents: write # create the draft release and upload its assets
