@@ -6,6 +6,10 @@
 // with QElapsedTimer (paint cost, not compositor latency). Reports import time,
 // peak/steady RSS (Linux /proc), cache statistics and frame-time percentiles as
 // JSON and a short summary.
+//
+// Then the persistence phase (M3): saves the board, writes a recovery snapshot
+// of an edit, and opens the saved board in a new window, each timed together
+// with the longest GUI stall (spec §9: no sustained stalls above 200 ms).
 
 #include "AppServices.h"
 #include "MainWindow.h"
@@ -13,6 +17,8 @@
 #include "glacier/canvas/BoardView.h"
 #include "glacier/canvas/ImageCache.h"
 #include "glacier/core/BoardDocument.h"
+#include "glacier/editing/CommandController.h"
+#include "glacier/editing/Operations.h"
 #include "glacier/io/MimeRouter.h"
 #include "glacier/platform/PlatformInfo.h"
 
@@ -22,6 +28,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -29,6 +36,7 @@
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QTimer>
+#include <QUndoStack>
 #include <QWindow>
 
 #include <algorithm>
@@ -74,6 +82,43 @@ void waitFor(int ms)
     QEventLoop loop;
     QTimer::singleShot(ms, &loop, &QEventLoop::quit);
     loop.exec();
+}
+
+// Longest gap between ticks of a 5 ms timer: how long the GUI thread was busy.
+class StallMeter
+{
+public:
+    StallMeter()
+    {
+        m_timer.setInterval(5);
+        QObject::connect(&m_timer, &QTimer::timeout, [this] {
+            m_longest = std::max(m_longest, double(m_clock.nsecsElapsed()) / 1e6);
+            m_clock.restart();
+        });
+    }
+    void start()
+    {
+        m_longest = 0;
+        m_clock.start();
+        m_timer.start();
+    }
+    double stop()
+    {
+        m_timer.stop();
+        return std::max(m_longest, double(m_clock.nsecsElapsed()) / 1e6);
+    }
+
+private:
+    QTimer m_timer;
+    QElapsedTimer m_clock;
+    double m_longest = 0;
+};
+
+// Runs the event loop until `done` is set.
+void until(const bool &done)
+{
+    while (!done)
+        QCoreApplication::processEvents(QEventLoop::WaitForMoreEvents, 50);
 }
 
 // Zoom/pan script over the board bounds: overview sweeps, then close-ups.
@@ -234,6 +279,64 @@ int main(int argc, char *argv[])
                                      {u"decode_failures"_s, qint64(cache.decodesFailed)}}},
             {u"platform"_s, platform::collectPlatformInfo().toText()},
         };
+
+        // Persistence: save, then a recovery snapshot of an edit.
+        StallMeter meter;
+        const QString boardPath = QDir(storeDir.path()).filePath(u"bench.glacierref"_s);
+        bool saved = false;
+        bool saveOk = false;
+        QObject::connect(&window, &MainWindow::saveFinished, &window, [&](bool ok) {
+            saved = true;
+            saveOk = ok;
+        });
+        QElapsedTimer persistence;
+        persistence.start();
+        meter.start();
+        window.saveAs(boardPath);
+        until(saved);
+        const double saveStall = meter.stop();
+        const double saveSeconds = double(persistence.nsecsElapsed()) / 1e9;
+
+        window.controller()->run(editing::ops::createNote(*window.document(), bounds.center(), u"bench"_s), u"Note"_s);
+        bool snapshot = false;
+        QObject::connect(&window, &MainWindow::recoverySnapshotWritten, &window, [&](bool) { snapshot = true; });
+        persistence.restart();
+        meter.start();
+        window.writeRecoverySnapshot();
+        until(snapshot);
+        const double snapshotStall = meter.stop();
+        result.insert(u"save"_s, QJsonObject{{u"ok"_s, saveOk},
+                                             {u"seconds"_s, saveSeconds},
+                                             {u"longest_stall_ms"_s, saveStall},
+                                             {u"file_mib"_s, QFileInfo(boardPath).size() / 1048576.0}});
+        result.insert(u"recovery_snapshot"_s, QJsonObject{{u"seconds"_s, double(persistence.nsecsElapsed()) / 1e9},
+                                                          {u"longest_stall_ms"_s, snapshotStall}});
+        window.controller()->undoStack()->undo(); // back to the saved state: no close prompt
+    }
+
+    // Open the saved board in a new window (the first one has released it).
+    {
+        MainWindow window(*services);
+        window.resize(1280, 800);
+        window.show();
+        waitFor(500);
+        StallMeter meter;
+        bool loaded = false;
+        bool loadOk = false;
+        QObject::connect(&window, &MainWindow::boardLoaded, &window, [&](bool ok) {
+            loaded = true;
+            loadOk = ok;
+        });
+        QElapsedTimer timer;
+        timer.start();
+        meter.start();
+        window.loadBoard(QDir(storeDir.path()).filePath(u"bench.glacierref"_s));
+        until(loaded);
+        const double stall = meter.stop();
+        result.insert(u"open"_s, QJsonObject{{u"ok"_s, loadOk},
+                                             {u"seconds"_s, double(timer.nsecsElapsed()) / 1e9},
+                                             {u"longest_stall_ms"_s, stall},
+                                             {u"items"_s, int(window.document()->itemCount())}});
     }
 
     const QByteArray json = QJsonDocument(result).toJson(QJsonDocument::Indented);
@@ -248,6 +351,14 @@ int main(int argc, char *argv[])
         << "/" << warm.value(u"max_ms"_s).toDouble() << " ms, RSS steady/peak "
         << result.value(u"rss_steady_mib"_s).toDouble() << "/" << result.value(u"rss_peak_mib"_s).toDouble() << " MiB"
         << Qt::endl;
+    const QJsonObject save = result.value(u"save"_s).toObject();
+    const QJsonObject open = result.value(u"open"_s).toObject();
+    const QJsonObject snapshot = result.value(u"recovery_snapshot"_s).toObject();
+    out << "save " << save.value(u"seconds"_s).toDouble() << " s (stall " << save.value(u"longest_stall_ms"_s).toDouble()
+        << " ms, " << save.value(u"file_mib"_s).toDouble() << " MiB), snapshot " << snapshot.value(u"seconds"_s).toDouble()
+        << " s (stall " << snapshot.value(u"longest_stall_ms"_s).toDouble() << " ms), open "
+        << open.value(u"seconds"_s).toDouble() << " s (stall " << open.value(u"longest_stall_ms"_s).toDouble()
+        << " ms, " << open.value(u"items"_s).toInt() << " items)" << Qt::endl;
     if (!parser.isSet(jsonOption))
         out << json;
     return 0;
