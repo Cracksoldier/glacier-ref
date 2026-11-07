@@ -3,7 +3,7 @@
 Version: 1.1  
 Date: 2026-11-06  
 Source: `GLACIER_REF_SPECIFICATION.md`, version 1.1  
-Status: M0 and M1 complete; M2 in progress
+Status: M0, M1 and M2 complete; M3 not started
 
 ## 1. Purpose and working rules
 
@@ -27,7 +27,7 @@ The target is a focused offline reference-board application using C++20, Qt 6 Wi
 | --- | --- | --- | --- | --- |
 | M0 — Foundation | Reproducible cross-platform application skeleton | None | Build prerequisites for all gates | Complete |
 | M1 — Canvas and import | Usable image board with bounded decoding | M0 | Early A01, A08, A10, A11 checks | Complete |
-| M2 — Editing | Complete v1 board editing and undo/redo | M1 | A01–A02 | In progress |
+| M2 — Editing | Complete v1 board editing and undo/redo | M1 | A01–A02 | Complete |
 | M3 — Durable boards | Portable saving, links, recovery, safe loading | M2 | A03–A07 | Not started |
 | M4 — Desktop polish | Reliable minimal UI, native behavior, performance | M3 | A08, A10, A11 | Not started |
 | M5 — Distribution | Tested installer, portable ZIP, AppImage, Flatpak, macOS build | M4 | A09, A12 | Not started |
@@ -124,7 +124,7 @@ The complete v1 editing toolset and meaningful document/command tests.
 ### Completion criteria
 
 - [x] **A01 passes:** All supported import paths/formats work offline and fail gracefully.
-- [ ] **A02 passes:** Editing operations undo/redo to the expected document state.
+- [x] **A02 passes:** Editing operations undo/redo to the expected document state.
 - [x] Grouping and ungrouping transformed/cropped items does not visually move them.
 - [x] Locked items cannot be modified or removed through editing/layout commands.
 - [x] Notes can be edited without canvas shortcuts intercepting text input.
@@ -281,7 +281,7 @@ M6 reruns the full matrix. Earlier passing results must be revisited when subseq
 
 ## 11. Deferred scope
 
-The following are not v1 milestones: animated playback, PDFs/videos, drawing annotations, color picking, presentation mode, plugins, Blender/Unreal integrations, rich-text/Markdown notes, nested groups, board image export, full color-proofing, dragging items out to other applications, click-through window mode, per-image opacity, AVIF/HEIC/PSD import, UI translations, and compositor-specific always-on-top integration. `.pur` compatibility needs a separate feasibility investigation before any commitment. Networking, cloud synchronization, and accounts remain excluded.
+The following are not v1 milestones: animated playback, PDFs/videos, drawing annotations, color picking, presentation mode, plugins, Blender/Unreal integrations, rich-text/Markdown notes, richer note styling, Copy Image with rotation applied, nested groups, board image export, full color-proofing, dragging items out to other applications, click-through window mode, per-image opacity, AVIF/HEIC/PSD import, UI translations, and compositor-specific always-on-top integration. `.pur` compatibility needs a separate feasibility investigation before any commitment. Networking, cloud synchronization, and accounts remain excluded.
 
 ## 12. Milestone completion record
 
