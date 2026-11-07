@@ -4,6 +4,7 @@
 #include "glacier/core/BoardDocument.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QObject>
 #include <QSignalSpy>
 
@@ -148,6 +149,67 @@ private slots:
         QVERIFY(!error.isEmpty());
         QCOMPARE(doc->snapshotAll(), before);
         QCOMPARE(doc->revision(), revision);
+    }
+
+    void titleIsUndoableMetadata()
+    {
+        BoardDocument doc;
+        QVERIFY(!doc.metadata().documentId.isNull());
+        QVERIFY(doc.metadata().created.isValid());
+        QCOMPARE(doc.metadata().created.timeSpec(), Qt::UTC);
+        QSignalSpy metadataChanged(&doc, &BoardDocument::metadataChanged);
+
+        DocumentChange rename;
+        rename.title = u"Moodboard"_s;
+        const auto inverse = doc.apply(rename);
+        QVERIFY(inverse);
+        QCOMPARE(doc.title(), u"Moodboard"_s);
+        QCOMPARE(inverse->title, std::optional<QString>(QString()));
+        QCOMPARE(metadataChanged.size(), 1);
+        QVERIFY(doc.apply(*inverse));
+        QCOMPARE(doc.title(), QString());
+
+        DocumentChange bad;
+        bad.title = QString(BoardDocument::MaxTitleLength + 1, u'x');
+        QVERIFY(!doc.apply(bad));
+        bad.title = u"tab\there"_s;
+        QVERIFY(!doc.apply(bad));
+
+        BoardMetadata meta = doc.metadata();
+        meta.title = u"Loaded"_s;
+        const quint64 revision = doc.revision();
+        QVERIFY(doc.setMetadata(meta));
+        QCOMPARE(doc.revision(), revision); // not an edit
+        meta.documentId = Id();
+        QVERIFY(!doc.setMetadata(meta));
+    }
+
+    void linkedAssetsNeedAbsoluteCleanPaths()
+    {
+        BoardDocument doc;
+        NewImage linked = fakeImage(7, {0, 0});
+        linked.linked = true;
+        linked.linkPath = QDir::cleanPath(QDir::tempPath() + u"/refs/a.png"_s);
+        const auto added = doc.addImages({linked});
+        QVERIFY(added);
+        const Asset *asset = doc.asset(doc.image(added->itemIds.first())->assetId);
+        QVERIFY(asset->linked);
+        QCOMPARE(asset->linkPath, linked.linkPath);
+
+        // Same bytes imported again (embedded or linked) reuse the asset.
+        QVERIFY(doc.addImages({fakeImage(7, {10, 10})}));
+        QCOMPARE(doc.assetCount(), 1);
+
+        for (const QString &path : {u"relative/a.png"_s, QDir::tempPath() + u"/x/../a.png"_s, QString()}) {
+            NewImage bad = fakeImage(8, {0, 0});
+            bad.linked = true;
+            bad.linkPath = path;
+            QVERIFY2(!doc.addImages({bad}), qPrintable(path));
+        }
+        DocumentChange embeddedWithPath;
+        Asset a{Id::generate(), test::fakeDigest(9), u"image/png"_s, {10, 10}, 10, false, linked.linkPath};
+        embeddedWithPath.insert.assets.append(a);
+        QVERIFY(!doc.apply(embeddedWithPath));
     }
 
     void groupsAndQueries()

@@ -4,6 +4,7 @@
 #include "glacier/core/Id.h"
 #include "glacier/core/Limits.h"
 
+#include <QDateTime>
 #include <QHash>
 #include <QList>
 #include <QObject>
@@ -16,9 +17,14 @@
 
 namespace glacier {
 
-// An image asset referenced by board items. Embedded assets are identified by
-// the SHA-256 of their stored bytes (lowercase hex) and deduplicated by it.
-// Assets are immutable.
+// An image asset referenced by board items, identified by the SHA-256 of its
+// bytes (lowercase hex) and deduplicated by it. Assets are immutable: link
+// repair and embedding replace the record (spec §4).
+//
+// Embedded assets are saved inside the board. Linked assets (spec §4, "Import
+// as Link") are saved as a path; `sha256` is the digest at the last accepted
+// load. In memory `linkPath` is always absolute and clean; the serializer
+// writes it relative to the board where possible.
 struct Asset
 {
     Id id;
@@ -26,6 +32,8 @@ struct Asset
     QString mediaType;   // e.g. "image/png"
     QSize orientedSize;  // pixel size after EXIF orientation (SVG: intrinsic size)
     qint64 byteLength = 0;
+    bool linked = false;
+    QString linkPath;    // absolute; empty for embedded assets
 
     friend bool operator==(const Asset &, const Asset &) = default;
 };
@@ -99,6 +107,18 @@ struct ViewSettings
     friend bool operator==(const ViewSettings &, const ViewSettings &) = default;
 };
 
+// Board metadata (spec §5). Not part of the undo history, except `title`,
+// which DocumentChange carries so renaming the board is undoable.
+struct BoardMetadata
+{
+    Id documentId;       // stable across saves; new for every new board
+    QString title;       // defaults to the file base name at first save
+    QDateTime created;   // UTC
+    QDateTime modified;  // UTC, set by each save
+
+    friend bool operator==(const BoardMetadata &, const BoardMetadata &) = default;
+};
+
 // A set of entity records, used for inserts, updates, snapshots and the
 // clipboard. Lists are in no particular order unless stated.
 struct Snapshot
@@ -120,8 +140,9 @@ struct DocumentChange
     Snapshot insert;
     Snapshot update; // assets are immutable and cannot be updated
     std::optional<ViewSettings> view;
+    std::optional<QString> title;
 
-    bool isEmpty() const { return remove.isEmpty() && insert.isEmpty() && update.isEmpty() && !view; }
+    bool isEmpty() const { return remove.isEmpty() && insert.isEmpty() && update.isEmpty() && !view && !title; }
 };
 
 // What a successful apply() changed, for presentation layers.
@@ -131,6 +152,7 @@ struct DocumentDelta
     QList<Id> inserted;
     QList<Id> updated;
     bool viewChanged = false;
+    bool titleChanged = false;
 };
 
 // Input for BoardDocument::addImages.
@@ -142,6 +164,10 @@ struct NewImage
     qint64 byteLength = 0;
     QPointF position;     // top-left on the board
     QSizeF displaySize;   // empty: use orientedSize
+    // Import as Link: the new asset is linked to this absolute, clean path.
+    // Bytes already on the board (same digest) reuse the existing asset.
+    bool linked = false;
+    QString linkPath;
 };
 
 struct AddImagesResult
@@ -161,7 +187,16 @@ class BoardDocument : public QObject
     Q_OBJECT
 
 public:
+    static constexpr qsizetype MaxTitleLength = 256;
+
     explicit BoardDocument(Limits limits = {}, QObject *parent = nullptr);
+
+    // Metadata of a new board: fresh document ID, empty title, created now.
+    const BoardMetadata &metadata() const { return m_metadata; }
+    // Replaces the metadata (loading, recovery, saving). Not undoable and does
+    // not change the revision; the title is validated like apply() does.
+    bool setMetadata(const BoardMetadata &metadata, QString *error = nullptr);
+    QString title() const { return m_metadata.title; }
 
     // Changes when the document is replaced; tags asynchronous results.
     Id documentToken() const { return m_token; }
@@ -229,6 +264,7 @@ public:
 
 signals:
     void changed(const glacier::DocumentDelta &delta);
+    void metadataChanged();
     void revisionChanged(quint64 revision);
 
 private:
@@ -243,6 +279,7 @@ private:
     static QString validateState(const State &state, const Limits &limits);
 
     Limits m_limits;
+    BoardMetadata m_metadata;
     Id m_token;
     quint64 m_revision = 0;
     quint64 m_cleanRevision = 0;

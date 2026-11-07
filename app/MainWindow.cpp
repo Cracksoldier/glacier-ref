@@ -676,7 +676,7 @@ void MainWindow::onBatchFinished(const io::ImportBatchResult &result)
         const io::ImportedImage &image = result.images[i];
         m_services.cache()->registerAsset(image.sha256, image.mediaType, image.orientedSize);
         m_services.cache()->insert(image.sha256, image.thumbnail);
-        newImages.append({image.sha256, image.mediaType, image.orientedSize, image.byteLength, positions[i], {}});
+        newImages.append({image.sha256, image.mediaType, image.orientedSize, image.byteLength, positions[i], {}, false, {}});
         for (const QString &notice : image.notices)
             notices.append(image.displayName + u": "_s + notice);
     }

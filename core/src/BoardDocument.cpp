@@ -1,5 +1,6 @@
 #include "glacier/core/BoardDocument.h"
 
+#include <QDir>
 #include <QSet>
 
 #include <algorithm>
@@ -34,6 +35,16 @@ void setError(QString *error, const QString &message)
         *error = message;
 }
 
+QString validateTitle(const QString &title)
+{
+    if (title.size() > BoardDocument::MaxTitleLength)
+        return u"the board title is too long"_s;
+    for (const QChar c : title)
+        if (c.category() == QChar::Other_Control)
+            return u"the board title contains control characters"_s;
+    return {};
+}
+
 bool validCrop(const QRectF &c)
 {
     return isFinite(c.x()) && isFinite(c.y()) && isFinite(c.width()) && isFinite(c.height()) && c.x() >= 0.0
@@ -54,6 +65,26 @@ BoardDocument::BoardDocument(Limits limits, QObject *parent)
     , m_limits(limits)
     , m_token(Id::generate())
 {
+    m_metadata.documentId = Id::generate();
+    m_metadata.created = QDateTime::currentDateTimeUtc();
+    m_metadata.modified = m_metadata.created;
+}
+
+bool BoardDocument::setMetadata(const BoardMetadata &metadata, QString *error)
+{
+    if (metadata.documentId.isNull()) {
+        setError(error, u"the document ID is missing"_s);
+        return false;
+    }
+    if (const QString e = validateTitle(metadata.title); !e.isEmpty()) {
+        setError(error, e);
+        return false;
+    }
+    if (metadata == m_metadata)
+        return true;
+    m_metadata = metadata;
+    emit metadataChanged();
+    return true;
 }
 
 bool BoardDocument::isValidDigest(const QByteArray &sha256)
@@ -105,6 +136,10 @@ QString BoardDocument::validateState(const State &s, const Limits &limits)
             return u"asset dimensions are invalid or exceed the limit"_s;
         if (a.byteLength <= 0 || a.byteLength > limits.maxAssetBytes)
             return u"asset size is invalid or exceeds the limit"_s;
+        if (a.linked != !a.linkPath.isEmpty())
+            return u"a linked asset needs a path, and only linked assets have one"_s;
+        if (a.linked && (!QDir::isAbsolutePath(a.linkPath) || QDir::cleanPath(a.linkPath) != a.linkPath))
+            return u"a linked asset path must be absolute and clean"_s;
     }
 
     // Groups first: children lists define membership.
@@ -283,11 +318,19 @@ std::optional<DocumentChange> BoardDocument::apply(const DocumentChange &change,
         return std::nullopt;
     }
 
-    // 4. View settings.
+    // 4. View settings and title.
     if (change.view && *change.view != s.view) {
         inverse.view = s.view;
         s.view = *change.view;
         delta.viewChanged = true;
+    }
+    if (change.title && *change.title != m_metadata.title) {
+        if (const QString e = validateTitle(*change.title); !e.isEmpty()) {
+            setError(error, e);
+            return std::nullopt;
+        }
+        inverse.title = m_metadata.title;
+        delta.titleChanged = true;
     }
 
     if (const QString e = validateState(s, m_limits); !e.isEmpty()) {
@@ -301,6 +344,8 @@ std::optional<DocumentChange> BoardDocument::apply(const DocumentChange &change,
     m_notes = std::move(s.notes);
     m_groups = std::move(s.groups);
     m_view = s.view;
+    if (delta.titleChanged)
+        m_metadata.title = *change.title;
     m_assetsByDigest.clear();
     for (const Asset &a : std::as_const(m_assets))
         m_assetsByDigest.insert(a.sha256, a.id);
@@ -308,6 +353,8 @@ std::optional<DocumentChange> BoardDocument::apply(const DocumentChange &change,
     ++m_revision;
     emit revisionChanged(m_revision);
     emit changed(delta);
+    if (delta.titleChanged)
+        emit metadataChanged();
     return inverse;
 }
 
@@ -332,7 +379,8 @@ std::optional<DocumentChange> BoardDocument::addImagesChange(const QList<NewImag
         } else if (const auto it = pending.constFind(image.sha256); it != pending.cend()) {
             assetId = *it;
         } else {
-            Asset asset{Id::generate(), image.sha256, image.mediaType, image.orientedSize, image.byteLength};
+            Asset asset{Id::generate(), image.sha256, image.mediaType, image.orientedSize,
+                        image.byteLength, image.linked, image.linked ? image.linkPath : QString()};
             assetId = asset.id;
             pending.insert(asset.sha256, asset.id);
             change.insert.assets.append(asset);
