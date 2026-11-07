@@ -253,10 +253,10 @@ bool BoardView::runEdit(const OpResult &result, const QString &text)
     return ok;
 }
 
-void BoardView::showToast(const QString &text)
+void BoardView::showToast(const QString &text, int durationMs)
 {
     m_toast = text;
-    m_toastTimer.start(2600);
+    m_toastTimer.start(durationMs);
     viewport()->update();
 }
 

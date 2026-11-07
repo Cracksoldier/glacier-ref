@@ -74,7 +74,7 @@ public:
 
     // Runs an edit through the controller; shows its error or lock notice.
     bool runEdit(const editing::OpResult &result, const QString &text);
-    void showToast(const QString &text);
+    void showToast(const QString &text, int durationMs = 2600);
     QString toastText() const { return m_toast; }
 
 signals:

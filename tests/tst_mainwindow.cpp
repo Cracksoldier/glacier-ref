@@ -3,7 +3,9 @@
 #include "TestImages.h"
 
 #include "AppServices.h"
+#include "HelpDialog.h"
 #include "MainWindow.h"
+#include "SettingsService.h"
 #include "RecoveryDialog.h"
 #include "glacier/canvas/BoardScene.h"
 #include "glacier/canvas/BoardView.h"
@@ -23,6 +25,11 @@
 #include <QDir>
 #include <QFile>
 #include <QMenu>
+#include <QMenuBar>
+#include <QPushButton>
+#include <QSettings>
+#include <QTableWidget>
+#include <QToolButton>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QObject>
@@ -172,6 +179,7 @@ private slots:
         QTest::newRow("grayscale") << u"Grayscale"_s << QKeySequence(Qt::Key_G);
         QTest::newRow("always on top") << u"AlwaysOnTop"_s << QKeySequence(Qt::CTRL | Qt::Key_T);
         QTest::newRow("quit") << u"Quit"_s << QKeySequence(Qt::CTRL | Qt::Key_Q);
+        QTest::newRow("menu bar") << u"ShowMenuBar"_s << QKeySequence(Qt::Key_Tab);
     }
 
     void actionsHaveSpecShortcuts()
@@ -653,6 +661,111 @@ private slots:
         QCOMPARE(calls, (QStringList{u"recover Board A"_s, u"recover "_s}));
         QCOMPARE(dialog.remaining(), 0);
         QCOMPARE(dialog.result(), int(QDialog::Accepted));
+    }
+
+    // --- Minimal UI (M4.01) ------------------------------------------------
+
+    void menuBarIsHiddenByDefaultAndTabTogglesIt()
+    {
+        QSettings().remove(u"ui/menuBarVisible"_s);
+        MainWindow window(*m_services);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        QVERIFY(!window.menuBar()->isVisible());
+        QVERIFY(window.menuButton()->isVisible());
+
+        MainWindow other(*m_services);
+        window.boardView()->setFocus();
+        QTest::keyClick(window.boardView(), Qt::Key_Tab);
+        QVERIFY(window.menuBar()->isVisible());
+        QVERIFY(!window.menuButton()->isVisible());
+        QVERIFY(m_services->settings()->menuBarVisible()); // remembered for new windows
+        QVERIFY(!other.menuButton()->isVisibleTo(&other)); // every window follows
+
+        // While a note is edited, Tab goes to the text.
+        window.boardView()->beginNewNote({0, 0});
+        QTest::keyClick(window.boardView(), Qt::Key_Tab);
+        QVERIFY(window.menuBar()->isVisible());
+        QTest::keyClick(window.boardView(), Qt::Key_Escape);
+
+        QTest::keyClick(window.boardView(), Qt::Key_Tab);
+        QVERIFY(!window.menuBar()->isVisible());
+        QVERIFY(!m_services->settings()->menuBarVisible());
+    }
+
+    void menuButtonAndContextMenuReachEveryCommand()
+    {
+        m_services->settings()->setMenuBarVisible(false);
+        MainWindow window(*m_services);
+        QMenu *menu = window.menuButton()->menu();
+        QVERIFY(menu);
+        emit menu->aboutToShow();
+        QCOMPARE(menu->actions(), window.menuBar()->actions()); // File, Edit, Board, View, Help
+        std::unique_ptr<QMenu> context(window.createContextMenu(nullptr));
+        QCOMPARE(context->actions().first(), window.action(u"ShowMenuBar"_s));
+    }
+
+    void firstRunHintIsShownOnce()
+    {
+        QSettings().remove(u"ui/firstRunHintShown"_s);
+        {
+            MainWindow window(*m_services);
+            window.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&window));
+            QVERIFY(window.boardView()->toastText().contains(u"Tab"_s));
+        }
+        MainWindow again(*m_services);
+        again.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&again));
+        QVERIFY(!again.boardView()->toastText().contains(u"Tab"_s));
+    }
+
+    void helpShowsShortcutsAndOpensTheWebsiteOnlyOnClick()
+    {
+        QList<QUrl> opened;
+        MainWindow::setUrlOpenerForTesting([&opened](const QUrl &url) { opened.append(url); });
+        MainWindow window(*m_services);
+        const QList<HelpDialog::ShortcutRow> rows = window.shortcutRows();
+        const auto save = std::find_if(rows.cbegin(), rows.cend(), [](const auto &r) { return r.command == u"Save"_s; });
+        QVERIFY(save != rows.cend());
+        QCOMPARE(save->menu, u"File"_s);
+        QCOMPARE(save->shortcuts, window.action(u"Save"_s)->shortcuts());
+
+        int tableRows = -1;
+        auto *timer = new QTimer;
+        timer->setInterval(20);
+        connect(timer, &QTimer::timeout, timer, [timer, &tableRows] {
+            const auto widgets = QApplication::topLevelWidgets();
+            for (QWidget *w : widgets) {
+                if (w->objectName() != u"helpDialog"_s || !w->isVisible())
+                    continue;
+                timer->stop();
+                timer->deleteLater();
+                tableRows = w->findChild<QTableWidget *>(u"shortcutTable"_s)->rowCount();
+                w->findChild<QPushButton *>(u"websiteButton"_s)->click();
+                static_cast<QDialog *>(w)->reject();
+                return;
+            }
+        });
+        timer->start();
+        QVERIFY(opened.isEmpty()); // nothing until asked
+        window.action(u"Help"_s)->trigger();
+        QCOMPARE(tableRows, int(rows.size()));
+        QCOMPARE(opened.size(), 1);
+        QCOMPARE(opened.first(), QUrl(u"https://github.com/Cracksoldier/glacier-ref"_s));
+        window.action(u"ProjectWebsite"_s)->trigger();
+        QCOMPARE(opened.size(), 2);
+        MainWindow::setUrlOpenerForTesting({});
+    }
+
+    void copyDiagnosticsHasNoPersonalPaths()
+    {
+        MainWindow window(*m_services);
+        window.action(u"CopyDiagnostics"_s)->trigger();
+        const QString report = QGuiApplication::clipboard()->text();
+        QVERIFY(report.contains(u"Data folders:"_s));
+        QVERIFY(report.contains(u"image cache:"_s));
+        QVERIFY(!report.contains(QDir::homePath()));
     }
 
     void quitClosesWindowCleanly()

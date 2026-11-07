@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "AppServices.h"
+#include "DiagnosticLog.h"
 #include "NoteStyleDialog.h"
 #include "glacier/canvas/BoardScene.h"
 #include "glacier/canvas/BoardView.h"
@@ -28,6 +29,10 @@
 #include <QBuffer>
 #include <QClipboard>
 #include <QCloseEvent>
+#include <QDesktopServices>
+#include <QImageReader>
+#include <QShowEvent>
+#include <QToolButton>
 #include <QColorDialog>
 #include <QDir>
 #include <QFileDialog>
@@ -103,6 +108,29 @@ MainWindow::MainWindow(AppServices &services, QWidget *parent)
     resize(1280, 800);
     createActions();
     updateTitle();
+
+    // The ≡ button: the whole menu while the menu bar is hidden (spec §3).
+    m_menuButton = new QToolButton(m_view);
+    m_menuButton->setObjectName(u"menuButton"_s);
+    m_menuButton->setText(u"≡"_s);
+    m_menuButton->setToolTip(tr("Menu (Tab shows the menu bar)"));
+    m_menuButton->setAutoRaise(true);
+    m_menuButton->setFocusPolicy(Qt::NoFocus);
+    m_menuButton->setPopupMode(QToolButton::InstantPopup);
+    m_menuButton->setStyleSheet(u"QToolButton { background: rgba(20, 22, 25, 150); color: #e6e6e6; border-radius: 4px;"
+                                " font-size: 16px; padding: 1px 7px; } QToolButton:hover { background: rgba(20, 22, 25, 220); }"
+                                " QToolButton::menu-indicator { image: none; }"_s);
+    auto *buttonMenu = new QMenu(m_menuButton);
+    connect(buttonMenu, &QMenu::aboutToShow, this, [this, buttonMenu] {
+        finishModes();
+        buttonMenu->clear();
+        for (QAction *top : menuBar()->actions())
+            buttonMenu->addAction(top); // the menu bar's own submenus and actions
+    });
+    m_menuButton->setMenu(buttonMenu);
+    m_menuButton->move(6, 6);
+    applyMenuBarVisibility(m_services.settings()->menuBarVisible());
+    connect(m_services.settings(), &SettingsService::menuBarVisibleChanged, this, &MainWindow::applyMenuBarVisibility);
 
     connect(m_view, &canvas::BoardView::dropReceived, this, &MainWindow::handleDrop);
     // File commands still work while a note is edited; they commit it first.
@@ -401,12 +429,34 @@ void MainWindow::createActions()
     QAction *onTop = addAction(view, u"AlwaysOnTop"_s, tr("Always on &Top"), {key(Qt::CTRL | Qt::Key_T)});
     onTop->setCheckable(true);
     connect(onTop, &QAction::toggled, this, &MainWindow::setAlwaysOnTop);
+    view->addSeparator();
+    // Minimal UI (spec §3): Tab toggles the menu bar, except while editing text.
+    QAction *menuToggle = addAction(view, u"ShowMenuBar"_s, tr("Show &Menu Bar"), {key(Qt::Key_Tab)});
+    menuToggle->setCheckable(true);
+    connect(menuToggle, &QAction::triggered, this,
+            [this](bool visible) { m_services.settings()->setMenuBarVisible(visible); });
 
     // Help
     QMenu *help = menuBar()->addMenu(tr("&Help"));
+    QList<QKeySequence> helpKeys = QKeySequence::keyBindings(QKeySequence::HelpContents);
+    if (helpKeys.isEmpty())
+        helpKeys = {key(Qt::Key_F1)};
+    addAction(help, u"Help"_s, tr("Glacier Ref &Help"), helpKeys);
+    on(u"Help"_s, [this] { showHelp(HelpDialog::Page::Basics); });
+    addAction(help, u"ShortcutReference"_s, tr("&Keyboard Shortcuts"));
+    on(u"ShortcutReference"_s, [this] { showHelp(HelpDialog::Page::Shortcuts); });
+    help->addSeparator();
+    addAction(help, u"ProjectWebsite"_s, tr("Project &Website"));
+    on(u"ProjectWebsite"_s, &MainWindow::openProjectWebsite);
+    addAction(help, u"CopyDiagnostics"_s, tr("Copy &Diagnostics"));
+    on(u"CopyDiagnostics"_s, [this] {
+        QGuiApplication::clipboard()->setText(diagnosticsReport());
+        m_view->showToast(tr("Diagnostics copied to the clipboard. They contain no file contents or personal paths."));
+    });
+    help->addSeparator();
     QAction *about = addAction(help, u"About"_s, tr("&About Glacier Ref"));
     about->setMenuRole(QAction::AboutRole);
-    on(u"About"_s, &MainWindow::showAbout);
+    on(u"About"_s, [this] { showHelp(HelpDialog::Page::About); });
     QAction *aboutQt = addAction(help, u"AboutQt"_s, tr("About &Qt"));
     aboutQt->setMenuRole(QAction::AboutQtRole);
     connect(aboutQt, &QAction::triggered, qApp, &QApplication::aboutQt);
@@ -416,6 +466,10 @@ QMenu *MainWindow::createContextMenu(QWidget *parent)
 {
     updateActionStates();
     auto *menu = new QMenu(parent);
+    if (!menuBar()->isVisible()) {
+        menu->addAction(m_actions.value(u"ShowMenuBar"_s));
+        menu->addSeparator();
+    }
     auto add = [this, menu](const QString &id) {
         if (QAction *a = m_actions.value(id); a && a->isEnabled())
             menu->addAction(a);
@@ -1689,16 +1743,114 @@ void MainWindow::showMessage(const QString &title, const QString &text, const QS
     box->open(); // non-blocking
 }
 
-void MainWindow::showAbout()
+// --- Minimal UI and help (M4.01) ----------------------------------------------------
+
+namespace {
+std::function<void(const QUrl &)> &urlOpener()
 {
-    const platform::PlatformInfo info = platform::collectPlatformInfo();
-    QMessageBox box(this);
-    box.setWindowTitle(tr("About Glacier Ref"));
-    box.setTextFormat(Qt::PlainText);
-    box.setText(tr("Glacier Ref %1\n\nAn offline reference board.\n%2")
-                    .arg(app_info::version(), app_info::homepageUrl()));
-    box.setDetailedText(info.toText());
-    box.exec();
+    static std::function<void(const QUrl &)> *opener =
+        new std::function<void(const QUrl &)>([](const QUrl &url) { QDesktopServices::openUrl(url); });
+    return *opener;
+}
+} // namespace
+
+void MainWindow::setUrlOpenerForTesting(std::function<void(const QUrl &)> opener)
+{
+    urlOpener() = opener ? std::move(opener) : [](const QUrl &url) { QDesktopServices::openUrl(url); };
+}
+
+void MainWindow::openProjectWebsite()
+{
+    // The only way Glacier Ref reaches the network is through the user's
+    // browser, on this explicit click (spec §3, A10).
+    urlOpener()(QUrl(app_info::homepageUrl()));
+}
+
+void MainWindow::applyMenuBarVisibility(bool visible)
+{
+    menuBar()->setVisible(visible);
+    m_menuButton->setVisible(!visible);
+    m_menuButton->raise();
+    if (QAction *toggle = m_actions.value(u"ShowMenuBar"_s))
+        toggle->setChecked(visible);
+}
+
+void MainWindow::showEvent(QShowEvent *event)
+{
+    QMainWindow::showEvent(event);
+    if (!m_firstShowDone) {
+        m_firstShowDone = true;
+        if (!m_services.settings()->firstRunHintShown()) {
+            m_services.settings()->setFirstRunHintShown();
+            m_view->showToast(tr("Press Tab or click ≡ for the menu · right-click for commands"), 9000);
+        }
+    }
+}
+
+QList<HelpDialog::ShortcutRow> MainWindow::shortcutRows() const
+{
+    QList<HelpDialog::ShortcutRow> rows;
+    std::function<void(QMenu *, const QString &)> collect = [&](QMenu *menu, const QString &title) {
+        for (QAction *a : menu->actions()) {
+            if (a->isSeparator())
+                continue;
+            if (a->menu()) {
+                collect(a->menu(), title);
+                continue;
+            }
+            QString text = a->text();
+            text.remove(u'&');
+            text.remove(u'…');
+            rows.append({title, text.trimmed(), a->shortcuts()});
+        }
+    };
+    for (QAction *top : menuBar()->actions()) {
+        if (!top->menu())
+            continue;
+        QString title = top->text();
+        title.remove(u'&');
+        collect(top->menu(), title);
+    }
+    return rows;
+}
+
+void MainWindow::showHelp(HelpDialog::Page page)
+{
+    finishModes();
+    const QString about =
+        tr("Glacier Ref %1\nAn offline reference board. MIT license.\n\nQt %2 (%3)\n\n"
+           "Glacier Ref is an independent project and is not affiliated with PureRef.\n"
+           "It makes no network connections; the button below opens the project page in your browser.")
+            .arg(app_info::version(), QString::fromLatin1(qVersion()), QGuiApplication::platformName());
+    HelpDialog dialog(shortcutRows(), about, [this] { openProjectWebsite(); }, this);
+    dialog.showPage(page);
+    dialog.exec();
+    m_view->setFocus();
+}
+
+QString MainWindow::diagnosticsReport() const
+{
+    const SettingsService *s = m_services.settings();
+    QStringList lines;
+    lines << platform::collectPlatformInfo().toText();
+    lines << u"Data folders:"_s
+          << u"  settings: "_s + QSettings().fileName()
+          << u"  sessions: "_s + m_services.sessionRoot()
+          << u"  recovery: "_s + m_services.recoveryRoot()
+          << u"  logs: "_s + AppServices::logDirectory()
+          << u"  current log: "_s + diagnostics::logFilePath();
+    lines << u"Settings:"_s
+          << u"  theme: "_s + (s->theme() == SettingsService::Theme::System ? u"system"_s : u"glacier"_s)
+          << u"  menu bar: "_s + (s->menuBarVisible() ? u"shown"_s : u"hidden"_s)
+          << u"  frameless: "_s + (s->frameless() ? u"yes"_s : u"no"_s)
+          << u"  image cache: %1 MiB"_s.arg(s->cacheBudgetMiB())
+          << u"  recovery: every %1 s, budget %2 MiB"_s.arg(s->recoveryIntervalSeconds()).arg(s->recoveryBudgetMiB())
+          << u"  custom shortcuts: %1"_s.arg(s->shortcutOverrides().size());
+    QStringList formats;
+    for (const QByteArray &f : QImageReader::supportedImageFormats())
+        formats.append(QString::fromLatin1(f));
+    lines << u"Image plugins: "_s + formats.join(u' ');
+    return diagnostics::redact(lines.join(u'\n'));
 }
 
 } // namespace glacier

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "HelpDialog.h"
 #include "glacier/editing/CommandController.h"
 #include "glacier/io/ImportService.h"
 #include "glacier/persistence/BoardSerializer.h"
@@ -20,6 +21,8 @@ class QAction;
 class QMenu;
 class QProgressDialog;
 class QTimer;
+class QToolButton;
+class QUrl;
 class QMimeData;
 
 namespace glacier {
@@ -86,6 +89,12 @@ public:
     // Save As without a dialog.
     void saveAs(const QString &path, std::function<void(bool)> done = {});
 
+    // Help ▸ Project Website goes through this (tests inject a recorder).
+    static void setUrlOpenerForTesting(std::function<void(const QUrl &)> opener);
+    QString diagnosticsReport() const;
+    QToolButton *menuButton() const { return m_menuButton; }
+    QList<HelpDialog::ShortcutRow> shortcutRows() const;
+
     // State of a linked asset's file (Available when not known otherwise).
     persistence::LinkState linkState(const Id &assetId) const;
     // Locate without the file dialog: links the selected image to `file`.
@@ -107,6 +116,7 @@ signals:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 
 private:
     QAction *addAction(QMenu *menu, const QString &id, const QString &text, const QList<QKeySequence> &shortcuts = {});
@@ -163,7 +173,9 @@ private:
     void onImportProgress(quint64 batchId, int done, int total);
     void onBatchFinished(const io::ImportBatchResult &result);
     void showMessage(const QString &title, const QString &text, const QString &details = {});
-    void showAbout();
+    void showHelp(HelpDialog::Page page);
+    void openProjectWebsite();
+    void applyMenuBarVisibility(bool visible);
     QList<glacier::Id> selection() const;
 
     AppServices &m_services;
@@ -175,6 +187,8 @@ private:
     QHash<QString, QAction *> m_actions;                // owned via QObject parent
     QHash<quint64, QPointer<QProgressDialog>> m_progress;
     bool m_alwaysOnTopNoticeShown = false;
+    QToolButton *m_menuButton = nullptr;
+    bool m_firstShowDone = false;
 
     QString m_filePath;
     std::shared_ptr<persistence::DocumentLock> m_lock; // null: no lock (untitled or read-only)
