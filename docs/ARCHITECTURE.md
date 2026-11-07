@@ -10,14 +10,15 @@ concrete and records decisions made during implementation.
 | --- | --- | --- | --- |
 | `core/` | `glacier::core` | Qt Core | `BoardDocument`, `Affine2D`, `Limits`, `BatchLayout`, `SessionAssetStore`, IDs, app identity. **No Gui/Widgets.** |
 | `io/` | `glacier::io` | core, Qt Gui, Svg, Concurrent | Format allowlist, `probeImage`/`decodeImage` (orientation, sRGB), `validateSvg`, `MimeRouter`, `ImportService`; `BoardSerializer` and recovery storage arrive in M3 (with miniz) |
-| `canvas/` | `glacier::canvas` | io, Qt Widgets | `ImageCache`, `BoardScene`/`BoardView`, `ImageItem` (`NoteItem`, `GroupItem` in M2): presentation and hit testing only |
+| `editing/` | `glacier::editing` | core, io, Qt Gui | `CommandController` (QUndoStack), `Operations` (pure edit builders), `ClipboardFragment` (CBOR), `NoteLayout`, `Geometry` |
+| `canvas/` | `glacier::canvas` | editing, io, Qt Widgets | `ImageCache`, `BoardScene`/`BoardView`, `BoardItems` (`ImageItem`, `NoteItem`, `GroupItem`), `TransformTool`: presentation and interaction only |
 | `platform/` | `glacier::platform` | Qt Gui | `PlatformInfo` (M0); `PlatformWindowService` capabilities (M4) |
 | `app/` | `glacier::app`, `glacier-ref` | all | `AppServices` (process-wide store, pool, cache), `MainWindow` (actions, import UI); `CommandController`, `SettingsService` later |
 | `tools/` | `glacier-fixturegen`, `glacier-bench` | app libs | Dataset generator and benchmark (not shipped) |
 | `third_party/miniz` | `glacier::miniz` | — | Vendored ZIP/deflate (see [DEPENDENCIES.md](DEPENDENCIES.md)) |
 | `tests/` | `tst_*` | as needed | Qt Test suites, each run in default and `de_AT` locale |
 
-Dependency direction: `app → canvas, io, platform → core`. `core` never
+Dependency direction: `app → canvas → editing → io → core` (and `app → platform → core`). `core` never
 includes Gui or Widgets headers; `canvas` items never own persistent state.
 
 ## M1 implementation notes
@@ -27,6 +28,19 @@ includes Gui or Widgets headers; `canvas` items never own persistent state.
 - **Image cache:** levels with longest side 256…8192 px (capped at the asset size), stored as `QPixmap` in a `QCache` with KiB cost and a 512 MiB default budget. A miss returns the closest cached level and schedules the needed one (at most 64 pending). Decodes read bytes from the session store, so originals never stay in RAM.
 - **View:** the scene rect is fixed to ±1e7 (spec range); at 6400% the scroll range (2e7 × 64) still fits an int. Zoom is clamped to 1%–6400% and anchored manually. Selection outlines and the rubber band are drawn in `drawForeground` in viewport coordinates, so they keep a constant on-screen width. This requires `FullViewportUpdate` (no scroll blitting). Items are selectable but not movable until M2.
 - **Peak memory:** at most one raw decode above 16 MP runs at a time; `QImageReader`'s allocation limit is set from `Limits::maxDecodedPixels`.
+
+## M2 implementation notes
+
+- **One mutation primitive:** `BoardDocument::apply(DocumentChange)` does removals, insertions, updates (whole-record replacement by ID) and view settings. It validates the complete resulting state before committing and returns the exact inverse. `CommandController` stores `{forward, inverse}` in one generic `QUndoCommand`, so every edit kind undoes the same way. A randomized 300-step session test checks exactness (`tst_commandcontroller`).
+- **Operations are pure:** `editing::ops::*` inspect the document and return a change. All rules live there: locks (including members of locked groups), flat groups, world-preserving group/ungroup, z-order, layout and paste ID remapping. Canvas and app code never build changes by hand.
+- **Transforms:** `displaySize` stays natural; every resize, rotation and flip is in `transform` (group-local for members). Crop is a normalized image-local rectangle, so the visible part stays in place.
+- **Gestures:** `TransformTool` previews by setting `QGraphicsItem` transforms. Release commits one `ops::transform` (or `ops::resizeNote`); Escape restores the preview. The document is untouched until commit.
+- **Scene sync:** `BoardScene` applies each `DocumentDelta` in place: new groups, then removals (surviving members detached), then images and notes with their parents, then group order. Selection therefore survives undo.
+- **Lifetime rules found by the sanitizer and debug-assert runs:**
+  - `MainWindow` disconnects child signals in its destructor.
+  - The view tracks the note being edited by ID, because the scene may delete the item first.
+  - Undo/redo actions leave text and crop modes before acting.
+- **Clipboard:** `application/x-glacierref-items` carries a CBOR fragment with asset bytes. Decoding treats it as untrusted (types, finite numbers, canonical IDs, limits, SHA-256). Paste stores the bytes in the session store and remaps IDs.
 
 ## Ownership
 

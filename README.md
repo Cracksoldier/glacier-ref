@@ -15,8 +15,9 @@ files.
 
 ## Status
 
-Early development: milestone **M0 (foundation)**. The application currently
-opens an empty canvas window. See the
+In development. Milestones M0 (foundation) and M1 (canvas and import) are
+complete; M2 (editing: transforms, crop, groups, locks, notes, undo/redo,
+clipboard) is implemented and in validation. Boards cannot be saved yet (M3). See the
 [milestones](docs/GLACIER_REF_MILESTONES.md) and the
 [specification](docs/GLACIER_REF_SPECIFICATION.md).
 

@@ -3,7 +3,7 @@
 Version: 1.1  
 Date: 2026-11-06  
 Source: `GLACIER_REF_SPECIFICATION.md`, version 1.1  
-Status: M0 and M1 complete; M2 not started
+Status: M0 and M1 complete; M2 in progress
 
 ## 1. Purpose and working rules
 
@@ -27,7 +27,7 @@ The target is a focused offline reference-board application using C++20, Qt 6 Wi
 | --- | --- | --- | --- | --- |
 | M0 — Foundation | Reproducible cross-platform application skeleton | None | Build prerequisites for all gates | Complete |
 | M1 — Canvas and import | Usable image board with bounded decoding | M0 | Early A01, A08, A10, A11 checks | Complete |
-| M2 — Editing | Complete v1 board editing and undo/redo | M1 | A01–A02 | Not started |
+| M2 — Editing | Complete v1 board editing and undo/redo | M1 | A01–A02 | In progress |
 | M3 — Durable boards | Portable saving, links, recovery, safe loading | M2 | A03–A07 | Not started |
 | M4 — Desktop polish | Reliable minimal UI, native behavior, performance | M3 | A08, A10, A11 | Not started |
 | M5 — Distribution | Tested installer, portable ZIP, AppImage, Flatpak, macOS build | M4 | A09, A12 | Not started |
@@ -103,19 +103,19 @@ A usable import-and-navigation prototype, reproducible datasets, import error ha
 
 ### Tasks
 
-- [ ] **M2.01 — Action registry:** Route menus, context menus, and shortcuts through common actions with consistent enable/disable behavior.
-- [ ] **M2.02 — Undo foundation:** Implement a per-document QUndoStack with a bounded, configurable limit (default 200 steps), asset reference lifetimes, dirty state, and command coalescing. Include import and deletion.
-- [ ] **M2.03 — Transforms:** Add move, proportional/non-proportional resize, free/snapped rotation, horizontal/vertical flip, and multi-selection transforms (including flips) around the selection bounds.
-- [ ] **M2.04 — Gestures:** Make one completed gesture one undo step; Escape cancels without committing. Canvas navigation must not modify item geometry.
-- [ ] **M2.05 — Crop:** Add image-local non-destructive crop; preserve original bytes and correct behavior under rotation, flip, and grouping.
-- [ ] **M2.06 — Groups:** Implement flat named groups, enter/leave group editing, and group/ungroup with world-transform preservation. Reject nested grouping and grouping of selections that contain locked items.
-- [ ] **M2.07 — Locks and stacking:** Add undoable lock/unlock and z-order commands. Locked groups protect children; children cannot be locked individually; locked objects remain selectable for inspection/unlocking.
-- [ ] **M2.08 — Layout:** Implement alignment and deterministic row arrangement (reading-order sort, square-root target row width) using transformed bounds, configurable spacing, and the specified treatment of groups/locked items.
-- [ ] **M2.09 — Notes:** Add Unicode plain-text notes with wrapping, resize-to-reflow, rotation, font size, foreground/background styling, and sensible undo coalescing.
-- [ ] **M2.10 — Preview:** Add board background and grayscale preview without modifying image bytes; both are undoable and mark the board dirty, whereas pan/zoom never does.
-- [ ] **M2.11 — Multi-window ownership:** Give each window its own board, undo history, selection, and worker-result routing. New/Open create windows in the current process; each launch is an independent process without single-instance forwarding.
-- [ ] **M2.12 — Clipboard:** Implement Copy, Cut, Paste, and Duplicate of items within and between windows and processes using `application/x-glacierref-items`, plus Copy Image (crop and flip applied) to the system clipboard.
-- [ ] **M2.13 — Behavioral tests:** Verify transform/crop math, grouping invariants, lock behavior, command reversibility, clipboard round-trips, and text-editing shortcut priority.
+- [x] **M2.01 — Action registry:** Route menus, context menus, and shortcuts through common actions with consistent enable/disable behavior.
+- [x] **M2.02 — Undo foundation:** Implement a per-document QUndoStack with a bounded, configurable limit (default 200 steps), asset reference lifetimes, dirty state, and command coalescing. Include import and deletion.
+- [x] **M2.03 — Transforms:** Add move, proportional/non-proportional resize, free/snapped rotation, horizontal/vertical flip, and multi-selection transforms (including flips) around the selection bounds.
+- [x] **M2.04 — Gestures:** Make one completed gesture one undo step; Escape cancels without committing. Canvas navigation must not modify item geometry.
+- [x] **M2.05 — Crop:** Add image-local non-destructive crop; preserve original bytes and correct behavior under rotation, flip, and grouping.
+- [x] **M2.06 — Groups:** Implement flat named groups, enter/leave group editing, and group/ungroup with world-transform preservation. Reject nested grouping and grouping of selections that contain locked items.
+- [x] **M2.07 — Locks and stacking:** Add undoable lock/unlock and z-order commands. Locked groups protect children; children cannot be locked individually; locked objects remain selectable for inspection/unlocking.
+- [x] **M2.08 — Layout:** Implement alignment and deterministic row arrangement (reading-order sort, square-root target row width) using transformed bounds, configurable spacing, and the specified treatment of groups/locked items.
+- [x] **M2.09 — Notes:** Add Unicode plain-text notes with wrapping, resize-to-reflow, rotation, font size, foreground/background styling, and sensible undo coalescing.
+- [x] **M2.10 — Preview:** Add board background and grayscale preview without modifying image bytes; both are undoable and mark the board dirty, whereas pan/zoom never does.
+- [x] **M2.11 — Multi-window ownership:** Give each window its own board, undo history, selection, and worker-result routing. New/Open create windows in the current process; each launch is an independent process without single-instance forwarding.
+- [x] **M2.12 — Clipboard:** Implement Copy, Cut, Paste, and Duplicate of items within and between windows and processes using `application/x-glacierref-items`, plus Copy Image (crop and flip applied) to the system clipboard.
+- [x] **M2.13 — Behavioral tests:** Verify transform/crop math, grouping invariants, lock behavior, command reversibility, clipboard round-trips, and text-editing shortcut priority.
 
 ### Deliverables
 
@@ -123,11 +123,11 @@ The complete v1 editing toolset and meaningful document/command tests.
 
 ### Completion criteria
 
-- [ ] **A01 passes:** All supported import paths/formats work offline and fail gracefully.
+- [x] **A01 passes:** All supported import paths/formats work offline and fail gracefully.
 - [ ] **A02 passes:** Editing operations undo/redo to the expected document state.
-- [ ] Grouping and ungrouping transformed/cropped items does not visually move them.
-- [ ] Locked items cannot be modified or removed through editing/layout commands.
-- [ ] Notes can be edited without canvas shortcuts intercepting text input.
+- [x] Grouping and ungrouping transformed/cropped items does not visually move them.
+- [x] Locked items cannot be modified or removed through editing/layout commands.
+- [x] Notes can be edited without canvas shortcuts intercepting text input.
 
 **Demo:** Build a reference board with images and notes, crop and rotate items, group them, arrange selections, lock an item, copy items into a second window, then undo and redo the workflow.
 
