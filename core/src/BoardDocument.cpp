@@ -1,6 +1,7 @@
 #include "glacier/core/BoardDocument.h"
 
-#include <QDir>
+#include "glacier/core/LinkPaths.h"
+
 #include <QSet>
 
 #include <algorithm>
@@ -35,7 +36,9 @@ void setError(QString *error, const QString &message)
         *error = message;
 }
 
-QString validateTitle(const QString &title)
+} // namespace
+
+QString BoardDocument::validateTitle(const QString &title)
 {
     if (title.size() > BoardDocument::MaxTitleLength)
         return u"the board title is too long"_s;
@@ -44,6 +47,8 @@ QString validateTitle(const QString &title)
             return u"the board title contains control characters"_s;
     return {};
 }
+
+namespace {
 
 bool validCrop(const QRectF &c)
 {
@@ -138,8 +143,8 @@ QString BoardDocument::validateState(const State &s, const Limits &limits)
             return u"asset size is invalid or exceeds the limit"_s;
         if (a.linked != !a.linkPath.isEmpty())
             return u"a linked asset needs a path, and only linked assets have one"_s;
-        if (a.linked && (!QDir::isAbsolutePath(a.linkPath) || QDir::cleanPath(a.linkPath) != a.linkPath))
-            return u"a linked asset path must be absolute and clean"_s;
+        if (a.linked && (!link_paths::isAbsolute(a.linkPath) || link_paths::normalize(a.linkPath) != a.linkPath))
+            return u"a linked asset path must be absolute and normalized"_s;
     }
 
     // Groups first: children lists define membership.
@@ -227,6 +232,31 @@ QString BoardDocument::validate() const
             return u"asset digest index is inconsistent"_s;
     }
     return {};
+}
+
+QString BoardDocument::validateSnapshot(const Snapshot &snapshot, const ViewSettings &view, const Limits &limits)
+{
+    if (snapshot.images.size() + snapshot.notes.size() > limits.maxItems)
+        return u"a board can hold at most %1 items"_s.arg(limits.maxItems);
+    State s;
+    s.view = view;
+    QSet<Id> seen;
+    QString problem;
+    auto collect = [&](auto &target, const auto &records) {
+        for (const auto &record : records) {
+            if (record.id.isNull() || seen.contains(record.id)) {
+                problem = u"an ID is missing or used more than once"_s;
+                return false;
+            }
+            seen.insert(record.id);
+            target.insert(record.id, record);
+        }
+        return true;
+    };
+    if (!collect(s.assets, snapshot.assets) || !collect(s.images, snapshot.images)
+        || !collect(s.notes, snapshot.notes) || !collect(s.groups, snapshot.groups))
+        return problem;
+    return validateState(s, limits);
 }
 
 // ---------------------------------------------------------------------------

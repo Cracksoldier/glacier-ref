@@ -10,12 +10,14 @@ add_library(glacier_core STATIC
     include/glacier/core/BoardDocument.h
     include/glacier/core/Id.h
     include/glacier/core/Limits.h
+    include/glacier/core/LinkPaths.h
     include/glacier/core/SessionAssetStore.h
     src/Affine2D.cpp
     src/AppInfo.cpp
     src/BatchLayout.cpp
     src/BoardDocument.cpp
     src/Id.cpp
+    src/LinkPaths.cpp
     src/SessionAssetStore.cpp)
 add_library(glacier::core ALIAS glacier_core)
 

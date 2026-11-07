@@ -34,6 +34,31 @@ glacier_add_test(tst_boarddocument
     SOURCES tst_boarddocument.cpp
     LIBS glacier::core)
 
+glacier_add_test(tst_manifest
+    SOURCES tst_manifest.cpp
+    LIBS glacier::persistence)
+
+glacier_add_test(tst_boardserializer
+    SOURCES tst_boardserializer.cpp
+    LIBS glacier::persistence)
+
+# Writes the compatibility fixtures (tests/fixtures/boards); not run by CTest.
+qt_add_executable(glacier_test_boardfixtures helpers/boardfixtures.cpp)
+glacier_configure_target(glacier_test_boardfixtures)
+target_include_directories(glacier_test_boardfixtures PRIVATE "${PROJECT_SOURCE_DIR}/tests/common")
+target_link_libraries(glacier_test_boardfixtures PRIVATE glacier::persistence Qt6::Gui)
+set_target_properties(glacier_test_boardfixtures PROPERTIES MACOSX_BUNDLE OFF WIN32_EXECUTABLE OFF)
+
+glacier_add_test(tst_compatibility
+    SOURCES tst_compatibility.cpp
+    LIBS glacier::persistence)
+target_compile_definitions(tst_compatibility PRIVATE
+    GLACIER_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures/boards")
+
+glacier_add_test(tst_linkpaths
+    SOURCES tst_linkpaths.cpp
+    LIBS glacier::core)
+
 qt_add_executable(glacier_test_lockholder helpers/lockholder.cpp)
 target_link_libraries(glacier_test_lockholder PRIVATE Qt6::Core)
 set_target_properties(glacier_test_lockholder PROPERTIES MACOSX_BUNDLE OFF WIN32_EXECUTABLE OFF)

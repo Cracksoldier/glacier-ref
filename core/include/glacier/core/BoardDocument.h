@@ -23,8 +23,8 @@ namespace glacier {
 //
 // Embedded assets are saved inside the board. Linked assets (spec §4, "Import
 // as Link") are saved as a path; `sha256` is the digest at the last accepted
-// load. In memory `linkPath` is always absolute and clean; the serializer
-// writes it relative to the board where possible.
+// load. In memory `linkPath` is always absolute and normalized (see
+// link_paths); the serializer writes it relative to the board where possible.
 struct Asset
 {
     Id id;
@@ -258,8 +258,14 @@ public:
 
     // Full invariant check; returns an empty string when valid.
     QString validate() const;
+    // Validates a complete board given as lists, e.g. decoded from a file:
+    // IDs must be unique across all lists, then every document invariant holds.
+    // Returns an empty string when valid.
+    static QString validateSnapshot(const Snapshot &snapshot, const ViewSettings &view, const Limits &limits);
 
     static bool isValidDigest(const QByteArray &sha256);
+    // Empty when `title` is a valid board title (length, no control characters).
+    static QString validateTitle(const QString &title);
     static bool isSupportedMediaType(const QString &mediaType);
 
 signals:

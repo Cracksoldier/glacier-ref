@@ -4,7 +4,6 @@
 #include "glacier/core/BoardDocument.h"
 
 #include <QCoreApplication>
-#include <QDir>
 #include <QObject>
 #include <QSignalSpy>
 
@@ -184,12 +183,12 @@ private slots:
         QVERIFY(!doc.setMetadata(meta));
     }
 
-    void linkedAssetsNeedAbsoluteCleanPaths()
+    void linkedAssetsNeedAbsoluteNormalizedPaths()
     {
         BoardDocument doc;
         NewImage linked = fakeImage(7, {0, 0});
         linked.linked = true;
-        linked.linkPath = QDir::cleanPath(QDir::tempPath() + u"/refs/a.png"_s);
+        linked.linkPath = u"/refs/a.png"_s;
         const auto added = doc.addImages({linked});
         QVERIFY(added);
         const Asset *asset = doc.asset(doc.image(added->itemIds.first())->assetId);
@@ -200,7 +199,7 @@ private slots:
         QVERIFY(doc.addImages({fakeImage(7, {10, 10})}));
         QCOMPARE(doc.assetCount(), 1);
 
-        for (const QString &path : {u"relative/a.png"_s, QDir::tempPath() + u"/x/../a.png"_s, QString()}) {
+        for (const QString &path : {u"relative/a.png"_s, u"/x/../a.png"_s, u"C:\\a.png"_s, QString()}) {
             NewImage bad = fakeImage(8, {0, 0});
             bad.linked = true;
             bad.linkPath = path;

@@ -1,2 +1,5 @@
 # Vendored sources are kept byte-identical to upstream releases.
 third_party/** -text
+
+# Board fixtures are binary contract files.
+tests/fixtures/** binary
