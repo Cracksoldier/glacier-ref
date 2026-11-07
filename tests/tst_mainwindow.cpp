@@ -3,6 +3,7 @@
 #include "TestImages.h"
 
 #include "AppServices.h"
+#include "FramelessController.h"
 #include "HelpDialog.h"
 #include "MainWindow.h"
 #include "PreferencesDialog.h"
@@ -847,6 +848,86 @@ private slots:
         QCOMPARE(window.controller()->undoStack()->count(), 0);
         QVERIFY(window.isReusable());
         m_services->settings()->setNewBoardBackground(SettingsService::DefaultBoardBackground);
+    }
+
+    // --- Window integration (M4.03, M4.04) ---------------------------------
+
+    void geometryIsRememberedForNewWindows()
+    {
+        {
+            auto *window = new MainWindow(*m_services);
+            window->setAttribute(Qt::WA_DeleteOnClose);
+            window->resize(640, 480); // fits the 800x600 offscreen screen
+            window->show();
+            QVERIFY(QTest::qWaitForWindowExposed(window));
+            QVERIFY(window->close());
+        }
+        MainWindow next(*m_services);
+        QCOMPARE(next.size(), QSize(640, 480));
+        m_services->settings()->setWindowGeometry({});
+    }
+
+    void windowOpacityWhereSupported()
+    {
+        MainWindow window(*m_services);
+        QAction *eighty = window.action(u"Opacity80"_s);
+        QVERIFY(eighty);
+        // Offscreen supports it; on native Wayland the menu is hidden (tst_platformwindow).
+        QVERIFY(eighty->isEnabled());
+        eighty->trigger();
+        QCOMPARE(window.windowOpacity(), 0.8);
+        QVERIFY(eighty->isChecked());
+        window.action(u"Opacity100"_s)->trigger();
+        QCOMPARE(window.windowOpacity(), 1.0);
+    }
+
+    void alwaysOnTopReportsHonestly()
+    {
+        MainWindow window(*m_services);
+        window.show();
+        window.action(u"AlwaysOnTop"_s)->trigger();
+        QVERIFY(window.windowFlags().testFlag(Qt::WindowStaysOnTopHint));
+        QCOMPARE(window.boardView()->toastText(), u"Always on top"_s); // offscreen honours the hint
+        window.action(u"AlwaysOnTop"_s)->trigger();
+        QVERIFY(!window.windowFlags().testFlag(Qt::WindowStaysOnTopHint));
+    }
+
+    void framelessModeAlwaysHasAWayBack()
+    {
+        MainWindow window(*m_services);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        window.action(u"FramelessWindow"_s)->trigger();
+        QVERIFY(window.isFrameless());
+        QVERIFY(window.framelessController()->grip()->isVisible());
+        QVERIFY(m_services->settings()->frameless());
+        std::unique_ptr<QMenu> context(window.createContextMenu(nullptr));
+        QVERIFY(context->actions().contains(window.action(u"ShowWindowFrame"_s)));
+
+        // Escape with no canvas mode active restores the frame.
+        window.activateWindow();
+        window.boardView()->setFocus();
+        QTest::keyClick(window.boardView(), Qt::Key_Escape);
+        QVERIFY(!window.isFrameless());
+        QVERIFY(!window.framelessController()->grip()->isVisible());
+
+        // A platform that refuses system moves gets its frame back (offscreen refuses).
+        window.setFrameless(true);
+        QVERIFY(!window.framelessController()->beginMove());
+        QVERIFY(!window.isFrameless());
+        QVERIFY(window.boardView()->toastText().contains(u"frame is back"_s));
+        QVERIFY(!m_services->settings()->frameless());
+    }
+
+    void framelessEdgesAreDetected()
+    {
+        const QSize size(800, 600);
+        QCOMPARE(FramelessController::edgesAt({2, 300}, size), Qt::Edges(Qt::LeftEdge));
+        QCOMPARE(FramelessController::edgesAt({798, 599}, size), Qt::Edges(Qt::RightEdge | Qt::BottomEdge));
+        QCOMPARE(FramelessController::edgesAt({400, 1}, size), Qt::Edges(Qt::TopEdge));
+        QCOMPARE(FramelessController::edgesAt({1, 1}, size), Qt::Edges(Qt::TopEdge | Qt::LeftEdge));
+        QCOMPARE(FramelessController::edgesAt({400, 300}, size), Qt::Edges());
+        QCOMPARE(FramelessController::edgesAt({400, 6}, size), Qt::Edges()); // the grip below the top edge moves
     }
 
     void quitClosesWindowCleanly()

@@ -566,6 +566,8 @@ void BoardView::keyPressEvent(QKeyEvent *event)
             m_gesture = Gesture::None;
         } else if (m_scene && !m_scene->activeGroup().isNull()) {
             leaveGroup();
+        } else {
+            emit escapeUnhandled(); // no canvas mode: the window may use it (frameless mode)
         }
         viewport()->update();
         event->accept();

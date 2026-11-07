@@ -38,6 +38,10 @@ glacier_add_test(tst_diagnostics
     SOURCES tst_diagnostics.cpp
     LIBS glacier::app)
 
+glacier_add_test(tst_platformwindow
+    SOURCES tst_platformwindow.cpp
+    LIBS glacier::platform)
+
 glacier_add_test(tst_affine2d
     SOURCES tst_affine2d.cpp
     LIBS glacier::core)

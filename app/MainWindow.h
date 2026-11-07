@@ -7,6 +7,7 @@
 #include "glacier/persistence/BoardSerializer.h"
 #include "glacier/persistence/DocumentLock.h"
 #include "glacier/persistence/RecoveryStore.h"
+#include "glacier/platform/PlatformWindowService.h"
 
 #include <QHash>
 #include <QKeySequence>
@@ -30,6 +31,8 @@ namespace glacier {
 
 class AppServices;
 class BoardDocument;
+
+class FramelessController;
 
 namespace canvas {
 class BoardScene;
@@ -94,6 +97,10 @@ public:
     static void setUrlOpenerForTesting(std::function<void(const QUrl &)> opener);
     QString diagnosticsReport() const;
     QToolButton *menuButton() const { return m_menuButton; }
+    // Frameless mode (M4.04).
+    bool isFrameless() const;
+    void setFrameless(bool on);
+    FramelessController *framelessController() const { return m_frameless; }
     QList<HelpDialog::ShortcutRow> shortcutRows() const;
     QList<PreferencesDialog::ShortcutEntry> shortcutEntries() const;
     QList<QKeySequence> defaultShortcuts(const QString &id) const { return m_defaultShortcuts.value(id); }
@@ -195,6 +202,8 @@ private:
     QHash<quint64, QPointer<QProgressDialog>> m_progress;
     bool m_alwaysOnTopNoticeShown = false;
     QToolButton *m_menuButton = nullptr;
+    FramelessController *m_frameless = nullptr;
+    const platform::WindowCapabilities m_capabilities = platform::currentCapabilities();
     bool m_firstShowDone = false;
 
     QString m_filePath;

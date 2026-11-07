@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "AppServices.h"
+#include "FramelessController.h"
 #include "DiagnosticLog.h"
 #include "NoteStyleDialog.h"
 #include "PreferencesDialog.h"
@@ -24,8 +25,10 @@
 #include "glacier/persistence/BoardSerializer.h"
 #include "glacier/persistence/DocumentLock.h"
 #include "glacier/platform/PlatformInfo.h"
+#include "glacier/platform/PlatformWindowService.h"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QBuffer>
 #include <QClipboard>
@@ -106,7 +109,9 @@ MainWindow::MainWindow(AppServices &services, QWidget *parent)
     m_view->setBoardScene(m_scene);
     m_view->setController(m_controller);
     setCentralWidget(m_view);
-    resize(1280, 800);
+    // Size and state of the last closed window (spec §7; positions are best-effort).
+    if (const QByteArray geometry = services.settings()->windowGeometry(); geometry.isEmpty() || !restoreGeometry(geometry))
+        resize(1280, 800);
     createActions();
     updateTitle();
 
@@ -129,7 +134,20 @@ MainWindow::MainWindow(AppServices &services, QWidget *parent)
             buttonMenu->addAction(top); // the menu bar's own submenus and actions
     });
     m_menuButton->setMenu(buttonMenu);
-    m_menuButton->move(6, 6);
+    m_menuButton->move(6, FramelessController::GripHeight + 2);
+
+    // Frameless mode (M4.04) with its ways back: context menu, ≡ menu, Escape.
+    m_frameless = new FramelessController(this, m_view, m_view->viewport(), this);
+    connect(m_frameless, &FramelessController::unsupported, this, [this] {
+        setFrameless(false);
+        m_view->showToast(tr("This system can't move or resize frameless windows, so the window frame is back."), 5000);
+    });
+    connect(m_view, &canvas::BoardView::escapeUnhandled, this, [this] {
+        if (isFrameless())
+            setFrameless(false);
+    });
+    if (services.settings()->frameless())
+        setFrameless(true);
     applyMenuBarVisibility(m_services.settings()->menuBarVisible());
     connect(m_services.settings(), &SettingsService::menuBarVisibleChanged, this, &MainWindow::applyMenuBarVisibility);
 
@@ -443,6 +461,23 @@ void MainWindow::createActions()
     QAction *onTop = addAction(view, u"AlwaysOnTop"_s, tr("Always on &Top"), {key(Qt::CTRL | Qt::Key_T)});
     onTop->setCheckable(true);
     connect(onTop, &QAction::toggled, this, &MainWindow::setAlwaysOnTop);
+    // Window opacity where the platform applies it (spec §3; not on native Wayland).
+    QMenu *opacity = view->addMenu(tr("Window &Opacity"));
+    auto *opacityGroup = new QActionGroup(this);
+    for (int percent : {100, 90, 80, 70, 60, 50}) {
+        QAction *a = addAction(opacity, u"Opacity%1"_s.arg(percent), tr("%1 %").arg(percent));
+        a->setCheckable(true);
+        a->setChecked(percent == 100);
+        opacityGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, percent] { setWindowOpacity(percent / 100.0); });
+    }
+    opacity->menuAction()->setVisible(m_capabilities.opacity);
+    opacity->setEnabled(m_capabilities.opacity);
+    QAction *frameless = addAction(view, u"FramelessWindow"_s, tr("&Frameless Window"));
+    frameless->setCheckable(true);
+    connect(frameless, &QAction::triggered, this, [this](bool enable) { setFrameless(enable); });
+    addAction(nullptr, u"ShowWindowFrame"_s, tr("Show Window &Frame"));
+    on(u"ShowWindowFrame"_s, [this] { setFrameless(false); });
     view->addSeparator();
     // Minimal UI (spec §3): Tab toggles the menu bar, except while editing text.
     QAction *menuToggle = addAction(view, u"ShowMenuBar"_s, tr("Show &Menu Bar"), {key(Qt::Key_Tab)});
@@ -480,8 +515,11 @@ QMenu *MainWindow::createContextMenu(QWidget *parent)
 {
     updateActionStates();
     auto *menu = new QMenu(parent);
-    if (!menuBar()->isVisible()) {
-        menu->addAction(m_actions.value(u"ShowMenuBar"_s));
+    if (!menuBar()->isVisible() || isFrameless()) {
+        if (!menuBar()->isVisible())
+            menu->addAction(m_actions.value(u"ShowMenuBar"_s));
+        if (isFrameless())
+            menu->addAction(m_actions.value(u"ShowWindowFrame"_s));
         menu->addSeparator();
     }
     auto add = [this, menu](const QString &id) {
@@ -1207,6 +1245,7 @@ void MainWindow::discardRecovery()
 
 void MainWindow::prepareToClose()
 {
+    m_services.settings()->setWindowGeometry(saveGeometry());
     // Normal closure (spec §5): the chosen action is done, so the board's
     // recovery data goes, including what it was recovered from.
     m_recoveryClosed->store(true);
@@ -1653,9 +1692,21 @@ void MainWindow::chooseArrangeSpacing()
 
 void MainWindow::setAlwaysOnTop(bool enabled)
 {
+    const bool visible = isVisible();
     setWindowFlag(Qt::WindowStaysOnTopHint, enabled);
-    show(); // changing window flags hides the window
-    if (enabled && QGuiApplication::platformName() == u"wayland"_s && !m_alwaysOnTopNoticeShown) {
+    if (visible)
+        show(); // changing window flags hides the window
+    // Honest status (spec §7): never claim what the compositor may ignore.
+    const platform::StayOnTop status = platform::stayOnTopStatus(enabled, m_capabilities);
+    if (QAction *onTop = m_actions.value(u"AlwaysOnTop"_s))
+        onTop->setToolTip(status == platform::StayOnTop::Requested
+                              ? tr("Requested: your compositor decides whether the window stays on top")
+                              : QString());
+    if (status == platform::StayOnTop::On)
+        m_view->showToast(tr("Always on top"));
+    else if (status == platform::StayOnTop::Requested)
+        m_view->showToast(tr("Always on top requested — your compositor decides"));
+    if (status == platform::StayOnTop::Requested && !m_alwaysOnTopNoticeShown) {
         m_alwaysOnTopNoticeShown = true;
         showMessage(tr("Always on top"),
                     tr("On Wayland, the compositor decides window stacking. Glacier Ref asked to stay on top, "
@@ -1755,6 +1806,28 @@ void MainWindow::showMessage(const QString &title, const QString &text, const QS
         box->setDetailedText(details);
     box->setAttribute(Qt::WA_DeleteOnClose);
     box->open(); // non-blocking
+}
+
+// --- Window integration (M4.03, M4.04) -------------------------------------------------
+
+bool MainWindow::isFrameless() const
+{
+    return windowFlags().testFlag(Qt::FramelessWindowHint);
+}
+
+void MainWindow::setFrameless(bool on)
+{
+    if (on != isFrameless()) {
+        const bool visible = isVisible();
+        setWindowFlag(Qt::FramelessWindowHint, on);
+        if (visible)
+            show(); // changing window flags hides the window
+    }
+    m_frameless->setEnabled(on);
+    m_menuButton->raise();
+    m_services.settings()->setFrameless(on);
+    if (QAction *a = m_actions.value(u"FramelessWindow"_s))
+        a->setChecked(on);
 }
 
 // --- Preferences (M4.02) ---------------------------------------------------------------

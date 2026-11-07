@@ -82,6 +82,8 @@ signals:
     void dropReceived(const QMimeData *mime, QPointF scenePos);
     void contextMenuRequested(QPoint globalPos);
     void modeChanged();
+    // Escape was pressed while no gesture or mode was active.
+    void escapeUnhandled();
 
 protected:
     bool event(QEvent *event) override;

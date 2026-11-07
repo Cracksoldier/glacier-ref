@@ -4,6 +4,8 @@ add_library(glacier_app STATIC
     AppServices.cpp
     DiagnosticLog.h
     DiagnosticLog.cpp
+    FramelessController.h
+    FramelessController.cpp
     HelpDialog.h
     HelpDialog.cpp
     MainWindow.h
@@ -29,7 +31,7 @@ qt_add_resources(glacier_app app_help
     FILES "${PROJECT_SOURCE_DIR}/resources/help/basics.html")
 target_link_libraries(glacier_app
     PUBLIC glacier::core glacier::io glacier::editing glacier::canvas glacier::persistence Qt6::Widgets Qt6::Concurrent
-    PRIVATE glacier::platform)
+    PUBLIC glacier::platform)
 
 qt_add_executable(glacier-ref main.cpp)
 glacier_configure_target(glacier-ref)

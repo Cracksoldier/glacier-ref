@@ -1,6 +1,8 @@
 add_library(glacier_platform STATIC
     include/glacier/platform/PlatformInfo.h
-    src/PlatformInfo.cpp)
+    include/glacier/platform/PlatformWindowService.h
+    src/PlatformInfo.cpp
+    src/PlatformWindowService.cpp)
 add_library(glacier::platform ALIAS glacier_platform)
 
 glacier_configure_target(glacier_platform)
