@@ -3,7 +3,7 @@
 Version: 1.1  
 Date: 2026-11-06  
 Source: `GLACIER_REF_SPECIFICATION.md`, version 1.1  
-Status: M0, M1 and M2 complete; M3 not started
+Status: M0, M1 and M2 complete; M3 in progress
 
 ## 1. Purpose and working rules
 
@@ -28,7 +28,7 @@ The target is a focused offline reference-board application using C++20, Qt 6 Wi
 | M0 — Foundation | Reproducible cross-platform application skeleton | None | Build prerequisites for all gates | Complete |
 | M1 — Canvas and import | Usable image board with bounded decoding | M0 | Early A01, A08, A10, A11 checks | Complete |
 | M2 — Editing | Complete v1 board editing and undo/redo | M1 | A01–A02 | Complete |
-| M3 — Durable boards | Portable saving, links, recovery, safe loading | M2 | A03–A07 | Not started |
+| M3 — Durable boards | Portable saving, links, recovery, safe loading | M2 | A03–A07 | In progress |
 | M4 — Desktop polish | Reliable minimal UI, native behavior, performance | M3 | A08, A10, A11 | Not started |
 | M5 — Distribution | Tested installer, portable ZIP, AppImage, Flatpak, macOS build | M4 | A09, A12 | Not started |
 | M6 — Release candidate | Validated, documented v1 candidate | M0–M5 | Full A01–A12 regression | Not started |
@@ -137,18 +137,18 @@ The complete v1 editing toolset and meaningful document/command tests.
 
 ### Tasks
 
-- [ ] **M3.01 — Format contract:** Document schema version 1, manifest fields, archive entries, IDs, timestamps, transform coefficients/order, orientation/crop semantics, and compatibility policy.
-- [ ] **M3.02 — Embedded persistence:** Write/read `.glacierref` ZIP files with `manifest.json`, deduplicated assets, and optional preview. Preserve all required board state.
-- [ ] **M3.03 — Validation:** Validate manifests and assets before replacing the active document. Reject invalid IDs/references/transforms, group cycles, nested groups, unsupported versions, traversal, and bad digests.
-- [ ] **M3.04 — Resource limits:** Bound archive entries, decompressed bytes, compression ratios, JSON depth, items, notes, asset sizes, and image dimensions.
-- [ ] **M3.05 — Atomic saves:** Save immutable document snapshots through `QSaveFile` (sibling temporary file) and replace targets only after successful completion. Keep newer edits dirty after asynchronous saves.
-- [ ] **M3.06 — Save conflicts:** Detect external modification, support Save As/explicit replacement, and prevent concurrent writable access using sibling `QLockFile` document locks. Open locked or unlockable boards read-only (in-memory edits allowed, Save disabled, Save As offered). Handle stale locks conservatively.
-- [ ] **M3.07 — Linked assets:** Add explicit linked import through “Import as Link…”, relative/absolute path handling, first-save resolution, Save As rebasing, and fingerprint comparison.
-- [ ] **M3.08 — Link repair:** Show stable placeholders for missing assets and implement Locate, Reload, and Embed. Do not silently accept modified linked content.
-- [ ] **M3.09 — Recovery:** Implement the SHA-256 recovery asset pool plus small manifest snapshots at the configurable default 60-second interval, including unnamed boards. Retain three snapshots per document within a bounded budget, removing pool assets that no retained snapshot references. Use per-session `QLockFile`s so only sessions of ended processes are offered for recovery.
-- [ ] **M3.10 — Startup/close flows:** Offer recovery choices; reopen recovery as dirty; implement Save/Discard/Cancel and safe recovery cleanup after normal closure.
-- [ ] **M3.11 — Compatibility fixtures:** Add format round-trip and migration infrastructure tests, including explicit rejection of unsupported newer schemas.
-- [ ] **M3.12 — Failure injection:** Exercise interrupted writes, disk-full behavior, permissions errors, external modification, locked boards, and termination during recovery/save.
+- [x] **M3.01 — Format contract:** Document schema version 1, manifest fields, archive entries, IDs, timestamps, transform coefficients/order, orientation/crop semantics, and compatibility policy.
+- [x] **M3.02 — Embedded persistence:** Write/read `.glacierref` ZIP files with `manifest.json`, deduplicated assets, and optional preview. Preserve all required board state.
+- [x] **M3.03 — Validation:** Validate manifests and assets before replacing the active document. Reject invalid IDs/references/transforms, group cycles, nested groups, unsupported versions, traversal, and bad digests.
+- [x] **M3.04 — Resource limits:** Bound archive entries, decompressed bytes, compression ratios, JSON depth, items, notes, asset sizes, and image dimensions.
+- [x] **M3.05 — Atomic saves:** Save immutable document snapshots through `QSaveFile` (sibling temporary file) and replace targets only after successful completion. Keep newer edits dirty after asynchronous saves.
+- [x] **M3.06 — Save conflicts:** Detect external modification, support Save As/explicit replacement, and prevent concurrent writable access using sibling `QLockFile` document locks. Open locked or unlockable boards read-only (in-memory edits allowed, Save disabled, Save As offered). Handle stale locks conservatively.
+- [x] **M3.07 — Linked assets:** Add explicit linked import through “Import as Link…”, relative/absolute path handling, first-save resolution, Save As rebasing, and fingerprint comparison.
+- [x] **M3.08 — Link repair:** Show stable placeholders for missing assets and implement Locate, Reload, and Embed. Do not silently accept modified linked content.
+- [x] **M3.09 — Recovery:** Implement the SHA-256 recovery asset pool plus small manifest snapshots at the configurable default 60-second interval, including unnamed boards. Retain three snapshots per document within a bounded budget, removing pool assets that no retained snapshot references. Use per-session `QLockFile`s so only sessions of ended processes are offered for recovery.
+- [x] **M3.10 — Startup/close flows:** Offer recovery choices; reopen recovery as dirty; implement Save/Discard/Cancel and safe recovery cleanup after normal closure.
+- [x] **M3.11 — Compatibility fixtures:** Add format round-trip and migration infrastructure tests, including explicit rejection of unsupported newer schemas.
+- [x] **M3.12 — Failure injection:** Exercise interrupted writes, disk-full behavior, permissions errors, external modification, locked boards, and termination during recovery/save.
 
 ### Deliverables
 
@@ -157,10 +157,10 @@ Documented file format, serializer, linked-asset management, recovery UI, and pe
 ### Completion criteria
 
 - [ ] **A03 passes:** Embedded boards round-trip and move between Linux and Windows without their source images.
-- [ ] **A04 passes:** Linked assets rebase correctly and missing/changed links can be repaired or embedded.
-- [ ] **A05 passes:** Failed/interrupted saves retain the previous valid board; asynchronous saves preserve dirty-state accuracy.
-- [ ] **A06 passes:** Forced termination yields the latest completed recovery for named and unnamed boards.
-- [ ] **A07 passes:** Malformed/oversized/unsupported content fails safely and without external I/O.
+- [x] **A04 passes:** Linked assets rebase correctly and missing/changed links can be repaired or embedded.
+- [x] **A05 passes:** Failed/interrupted saves retain the previous valid board; asynchronous saves preserve dirty-state accuracy.
+- [x] **A06 passes:** Forced termination yields the latest completed recovery for named and unnamed boards.
+- [x] **A07 passes:** Malformed/oversized/unsupported content fails safely and without external I/O.
 
 **Demo:** Save a board, move it to another OS, reopen it, repair a missing link, then force termination and recover unsaved edits.
 

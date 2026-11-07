@@ -8,17 +8,18 @@ concrete and records decisions made during implementation.
 
 | Directory | Target | Depends on | Responsibility |
 | --- | --- | --- | --- |
-| `core/` | `glacier::core` | Qt Core | `BoardDocument`, `Affine2D`, `Limits`, `BatchLayout`, `SessionAssetStore`, IDs, app identity. **No Gui/Widgets.** |
-| `io/` | `glacier::io` | core, Qt Gui, Svg, Concurrent | Format allowlist, `probeImage`/`decodeImage` (orientation, sRGB), `validateSvg`, `MimeRouter`, `ImportService`; `BoardSerializer` and recovery storage arrive in M3 (with miniz) |
+| `core/` | `glacier::core` | Qt Core | `BoardDocument`, `Affine2D`, `Limits`, `BatchLayout`, `SessionAssetStore`, `link_paths`, IDs, app identity. **No Gui/Widgets.** |
+| `io/` | `glacier::io` | core, Qt Gui, Svg, Concurrent | Format allowlist, `probeImage`/`decodeImage` (orientation, sRGB), `validateSvg`, `MimeRouter`, `ImportService` |
+| `persistence/` | `glacier::persistence` | core, io, miniz | `ZipArchive`, `Manifest` (schema 1, migrations), `BoardSerializer` (save/load jobs, link checks), `DocumentLock`, `RecoveryStore` ([format](FORMAT.md)) |
 | `editing/` | `glacier::editing` | core, io, Qt Gui | `CommandController` (QUndoStack), `Operations` (pure edit builders), `ClipboardFragment` (CBOR), `NoteLayout`, `Geometry` |
 | `canvas/` | `glacier::canvas` | editing, io, Qt Widgets | `ImageCache`, `BoardScene`/`BoardView`, `BoardItems` (`ImageItem`, `NoteItem`, `GroupItem`), `TransformTool`: presentation and interaction only |
 | `platform/` | `glacier::platform` | Qt Gui | `PlatformInfo` (M0); `PlatformWindowService` capabilities (M4) |
-| `app/` | `glacier::app`, `glacier-ref` | all | `AppServices` (process-wide store, pool, cache), `MainWindow` (actions, import UI); `CommandController`, `SettingsService` later |
+| `app/` | `glacier::app`, `glacier-ref` | all | `AppServices` (process-wide store, pool, cache, recovery), `MainWindow` (actions, import, board files, links, recovery), `RecoveryDialog`; `SettingsService` later |
 | `tools/` | `glacier-fixturegen`, `glacier-bench` | app libs | Dataset generator and benchmark (not shipped) |
 | `third_party/miniz` | `glacier::miniz` | — | Vendored ZIP/deflate (see [DEPENDENCIES.md](DEPENDENCIES.md)) |
 | `tests/` | `tst_*` | as needed | Qt Test suites, each run in default and `de_AT` locale |
 
-Dependency direction: `app → canvas → editing → io → core` (and `app → platform → core`). `core` never
+Dependency direction: `app → canvas → editing → io → core`, `app → persistence → io → core` (and `app → platform → core`). `core` never
 includes Gui or Widgets headers; `canvas` items never own persistent state.
 
 ## M1 implementation notes
@@ -41,6 +42,16 @@ includes Gui or Widgets headers; `canvas` items never own persistent state.
   - The view tracks the note being edited by ID, because the scene may delete the item first.
   - Undo/redo actions leave text and crop modes before acting.
 - **Clipboard:** `application/x-glacierref-items` carries a CBOR fragment with asset bytes. Decoding treats it as untrusted (types, finite numbers, canonical IDs, limits, SHA-256). Paste stores the bytes in the session store and remaps IDs.
+
+## M3 implementation notes
+
+- **Format:** [FORMAT.md](FORMAT.md) is the contract; committed fixtures (`tests/fixtures/boards`) load on every CI platform and must never be regenerated for schema 1. The manifest decoder is strict and validates the whole board (`BoardDocument::validateSnapshot`) before anything uses it; JSON depth is pre-scanned before parsing.
+- **Loading:** a worker opens the file, checks the archive (entry names, count, uncompressed total, per-entry compression ratio), decodes the manifest, then streams each embedded asset into the session store after verifying length, SHA-256, detected format and dimensions. The file is closed before the result reaches the GUI, which creates the document in one `apply()` and starts with an empty undo stack.
+- **Saving:** the GUI thread takes an immutable snapshot (`snapshotAll`, metadata, view, a 512 px preview rendered from the scene) and the history marker; a worker writes the archive through miniz callbacks into a `QSaveFile` without direct-write fallback. `CommandController` tracks clean state by the marker of the command at the top of the stack, so a save that completes after further edits leaves them dirty. `ZipWriter` uses a tracking allocator because miniz 3.1.2 leaks its deflate state on failed writes.
+- **Locks and conflicts:** `DocumentLock` is a sibling `QLockFile` that never expires by age; Qt takes over locks of ended same-host processes, other-host locks need an explicit, confirmed removal. Size and modification time at load/save detect external modification before overwriting.
+- **Links:** in memory a linked asset has an absolute, normalized path (`link_paths`, the same syntax on every platform), and its bytes are also put into the session store, so decoding and the cache don't distinguish link from embed. Each save recomputes stored paths relative to the target. Link repair (`ops::replaceAssets`) swaps immutable asset records in one change; link states (available, missing, changed) are window state, shown as labelled placeholders per asset ID, so undo shows the right placeholder.
+- **Recovery:** `RecoveryStore` keeps snapshots per open board (window), assets in a SHA-256 pool shared by all sessions (hard links from the session store where possible). Discovery only looks at sessions whose lock is free. A recovered board is written as the new window's own snapshot before the old data is removed, so a second crash still finds it.
+- **Text editing:** `BoardView` lets a list of shortcuts through while a note is edited (Save, Save As, Open, New Window, Close Window, Quit); their handlers commit the text first.
 
 ## Ownership
 
@@ -125,7 +136,8 @@ as "supported":
 ## Persistence
 
 - All file writes that replace user data go through `QSaveFile` (sibling
-  temporary file plus atomic commit) or an equivalent public mechanism.
+  temporary file plus atomic commit, direct-write fallback disabled for boards)
+  or an equivalent public mechanism. The board format is in [FORMAT.md](FORMAT.md).
 - Serialization is locale-independent (`QJsonDocument`, `QString::number`);
   tests run in a comma-decimal locale to enforce this.
 - Archive I/O uses miniz through `QIODevice` callbacks only (`MINIZ_NO_STDIO`

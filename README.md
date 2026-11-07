@@ -15,9 +15,10 @@ files.
 
 ## Status
 
-In development. Milestones M0 (foundation) and M1 (canvas and import) are
-complete; M2 (editing: transforms, crop, groups, locks, notes, undo/redo,
-clipboard) is implemented and in validation. Boards cannot be saved yet (M3). See the
+In development. Milestones M0 (foundation), M1 (canvas and import) and M2
+(editing) are complete. M3 (durable boards: the documented `.glacierref`
+format, atomic saves, document locks, linked images with repair, and crash
+recovery) is implemented and in validation. See the
 [milestones](docs/GLACIER_REF_MILESTONES.md) and the
 [specification](docs/GLACIER_REF_SPECIFICATION.md).
 
