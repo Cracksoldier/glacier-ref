@@ -175,7 +175,8 @@ int main(int argc, char *argv[])
     const QCommandLineOption sizeOption(u"size"_s, u"Window size WxH instead of maximized (e.g. 2560x1440)."_s, u"WxH"_s);
     const QCommandLineOption storeOption(u"store-root"_s, u"Asset store root (default: next to the dataset)."_s, u"dir"_s);
     const QCommandLineOption coldOption(u"cold"_s, u"Pause before opening the saved board, to drop the page cache."_s);
-    parser.addOptions({datasetOption, framesOption, jsonOption, screenOption, sizeOption, storeOption, coldOption});
+    const QCommandLineOption notesOption(u"notes"_s, u"Notes added beside the images (default 50, spec §9)."_s, u"n"_s, u"50"_s);
+    parser.addOptions({datasetOption, framesOption, jsonOption, screenOption, sizeOption, storeOption, coldOption, notesOption});
     parser.process(app);
 
     QTextStream out(stdout);
@@ -245,6 +246,16 @@ int main(int argc, char *argv[])
             QCoreApplication::processEvents(QEventLoop::WaitForMoreEvents, 100);
         const double importSeconds = double(importTimer.nsecsElapsed()) / 1e9;
         const double importStall = importMeter.stop();
+        // The spec's standard dataset has 50 notes beside the images (§9).
+        const QRectF imageBounds = window.document()->boundingRect();
+        const int notes = parser.value(notesOption).toInt();
+        for (int i = 0; i < notes; ++i) {
+            const QPointF at(imageBounds.left() + (i % 10) * imageBounds.width() / 10.0,
+                             imageBounds.bottom() + 200.0 + (i / 10) * 260.0);
+            window.controller()->run(editing::ops::createNote(*window.document(), at,
+                                                              u"Reference note %1: lighting, palette, shapes."_s.arg(i + 1)),
+                                     u"Note"_s);
+        }
         const qint64 rssAfterImport = procStatusKiB("VmRSS:");
 
         canvas::BoardView *view = window.boardView();

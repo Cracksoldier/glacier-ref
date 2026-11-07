@@ -3,7 +3,7 @@
 Version: 1.1  
 Date: 2026-11-06  
 Source: `GLACIER_REF_SPECIFICATION.md`, version 1.1  
-Status: M0, M1, M2 and M3 complete; M4 not started
+Status: M0, M1, M2 and M3 complete; M4 in progress
 
 ## 1. Purpose and working rules
 
@@ -29,7 +29,7 @@ The target is a focused offline reference-board application using C++20, Qt 6 Wi
 | M1 — Canvas and import | Usable image board with bounded decoding | M0 | Early A01, A08, A10, A11 checks | Complete |
 | M2 — Editing | Complete v1 board editing and undo/redo | M1 | A01–A02 | Complete |
 | M3 — Durable boards | Portable saving, links, recovery, safe loading | M2 | A03–A07 | Complete |
-| M4 — Desktop polish | Reliable minimal UI, native behavior, performance | M3 | A08, A10, A11 | Not started |
+| M4 — Desktop polish | Reliable minimal UI, native behavior, performance | M3 | A08, A10, A11 | In progress |
 | M5 — Distribution | Tested installer, portable ZIP, AppImage, Flatpak, macOS build | M4 | A09, A12 | Not started |
 | M6 — Release candidate | Validated, documented v1 candidate | M0–M5 | Full A01–A12 regression | Not started |
 
@@ -170,26 +170,26 @@ Documented file format, serializer, linked-asset management, recovery UI, and pe
 
 ### Tasks
 
-- [ ] **M4.01 — Minimal UI:** Finish toggleable menus, context menus, discoverable menu access, first-run guidance, Escape behavior, and Help (offline content plus a user-initiated repository link). Ensure window controls remain accessible.
-- [ ] **M4.02 — Preferences:** Implement appearance, the default shortcut table and its customization/conflict reporting, recovery interval, and cache budget using SettingsService.
-- [ ] **M4.03 — Window integration:** (M1.12 finding: KWin ignores the always-on-top hint on Wayland; M1 shows guidance only.) Implement PlatformWindowService capability handling, system move/resize, size/state restoration, honest always-on-top status/fallback guidance without compositor-specific integration, and window opacity where supported (hidden on native Wayland).
+- [x] **M4.01 — Minimal UI:** Finish toggleable menus, context menus, discoverable menu access, first-run guidance, Escape behavior, and Help (offline content plus a user-initiated repository link). Ensure window controls remain accessible.
+- [x] **M4.02 — Preferences:** Implement appearance, the default shortcut table and its customization/conflict reporting, recovery interval, and cache budget using SettingsService.
+- [x] **M4.03 — Window integration:** (M1.12 finding: KWin ignores the always-on-top hint on Wayland; M1 shows guidance only.) Implement PlatformWindowService capability handling, system move/resize, size/state restoration, honest always-on-top status/fallback guidance without compositor-specific integration, and window opacity where supported (hidden on native Wayland).
 - [ ] **M4.04 — Optional frameless decision:** Enable only after validated native move/resize and recovery from hidden controls; otherwise retain standard decorations and record the decision.
 - [ ] **M4.05 — Desktop validation:** Test CachyOS native Wayland with the recorded reference compositor, plus X11 and a secondary compositor smoke test on the maintainer's Fedora system.
 - [ ] **M4.06 — DPI and input:** Check fractional scaling, mixed-DPI monitors, trackpads, focus, dialogs, Unicode paths, and text/menu shortcut conflicts.
 - [ ] **M4.07 — Performance:** Optimize visible-item rendering, cache eviction, worker concurrency, decoding, and save progress against recorded fixtures.
 - [ ] **M4.08 — Offline audit:** Monitor application-originated network activity across startup, help, imports, SVG processing, editing, recovery, and saves.
-- [ ] **M4.09 — Diagnostics:** Provide useful local errors and avoid image bytes, note text, and full personal paths in default logs.
+- [x] **M4.09 — Diagnostics:** Provide useful local errors and avoid image bytes, note text, and full personal paths in default logs.
 
 ### Performance completion checklist
 
 Measure on the specification’s reference workstation under the constrained profile (four P-cores, 16 GiB memory, 2560×1440 display) with the standard dataset: 300 distinct 2048×2048 JPEG images plus 50 notes.
 
-- [ ] Warm navigation targets 60 FPS with 95th-percentile frame time no greater than 33 ms.
-- [ ] Cached selection/transform feedback is under 100 ms.
+- [x] Warm navigation targets 60 FPS with 95th-percentile frame time no greater than 33 ms.
+- [x] Cached selection/transform feedback is under 100 ms.
 - [ ] Initial cold content appears within 3 seconds; board is usable within 10 seconds.
-- [ ] Steady-state memory is at most the 1.5 GiB target with the default 512 MiB decoded cache.
-- [ ] Imports/saves avoid sustained GUI stalls above 200 ms.
-- [ ] The 1,000-asset stress fixture retains responsive cancellation and bounded memory.
+- [x] Steady-state memory is at most the 1.5 GiB target with the default 512 MiB decoded cache.
+- [x] Imports/saves avoid sustained GUI stalls above 200 ms.
+- [x] The 1,000-asset stress fixture retains responsive cancellation and bounded memory.
 
 ### Completion criteria
 

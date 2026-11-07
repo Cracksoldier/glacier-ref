@@ -53,6 +53,15 @@ includes Gui or Widgets headers; `canvas` items never own persistent state.
 - **Recovery:** `RecoveryStore` keeps snapshots per open board (window), assets in a SHA-256 pool shared by all sessions (hard links from the session store where possible). Discovery only looks at sessions whose lock is free. A recovered board is written as the new window's own snapshot before the old data is removed, so a second crash still finds it.
 - **Text editing:** `BoardView` lets a list of shortcuts through while a note is edited (Save, Save As, Open, New Window, Close Window, Quit); their handlers commit the text first.
 
+## M4 implementation notes
+
+- **Settings:** `SettingsService` (app) is the only place that reads and writes QSettings keys for preferences; windows follow its signals (`shortcutsChanged`, `appearanceChanged`, `cacheBudgetChanged`, `recoveryChanged`, `menuBarVisibleChanged`), so all windows change together. Shortcut overrides store only differences from the defaults that `MainWindow::addAction` registers. Tests give every process its own INI settings (`GlacierTestMain.h`).
+- **Diagnostics policy:** logs never contain note text or image bytes; messages pass through `diagnostics::redact` (home directory → `~`, user name → `<user>`), and file events name files, not paths. The handler writes to stderr and to `<AppData>/logs/glacier-ref-<UTC time>-<pid>.log` (1 MiB cap per file, newest five kept). Categories are `glacier.app`, `glacier.files`, `glacier.recovery`, `glacier.import` (info and above by default).
+- **Capabilities:** `platform::PlatformWindowService` decides per platform plugin what can be promised (opacity, confirmable always-on-top, system move/resize, positioning). UI never claims more: Wayland gets "requested — your compositor decides" and no opacity menu.
+- **Frameless:** `FramelessController` filters the view and viewport events; it only calls `startSystemMove/Resize` from a genuine press, never moves windows by coordinates, and emits `unsupported` so the window restores its frame.
+- **Progress dialogs:** never delete a `QProgressDialog` from a slot that may run inside its own `setValue()` (window-modal dialogs process events there); `retireProgressDialog` disconnects, cancels and `deleteLater`s.
+- **Bulk selection:** select through `BoardScene::selectIds`/`selectAllSelectable`, which emit `selectionChanged` once; per-item emissions made listeners quadratic.
+
 ## Ownership
 
 - RAII everywhere. No raw owning pointers.

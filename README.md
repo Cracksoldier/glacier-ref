@@ -18,7 +18,9 @@ files.
 In development. Milestones M0 (foundation), M1 (canvas and import), M2
 (editing) and M3 (durable boards: the documented `.glacierref` format, atomic
 saves, document locks, linked images with repair, and crash recovery) are
-complete. See the
+complete. M4 (desktop polish: minimal UI with Tab and a menu button,
+Preferences with custom shortcuts, a dark Glacier theme, frameless windows,
+offline help) is implemented and in validation. See the
 [milestones](docs/GLACIER_REF_MILESTONES.md) and the
 [specification](docs/GLACIER_REF_SPECIFICATION.md).
 

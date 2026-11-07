@@ -76,6 +76,6 @@ during the manual validation (M5).
 | 2026-11-06 | `28d2dd4` | `glacier-bench --dataset stress` (1,000 mixed images incl. 103 SVGs: import, decode, render, 2×60 frames; offscreen) | PASS: no AF_INET/AF_INET6 activity; 3 AF_UNIX calls |
 | 2026-11-07 | `72f6e9c` | `glacier-bench --dataset standard` with the persistence phase (import, save, recovery snapshot, open) | PASS: no AF_INET/AF_INET6 activity; 4 AF_UNIX calls |
 | 2026-11-07 | — | Negative controls for process attribution: a child exec'ing a fake `xdg-open` that opens an AF_INET socket; a child exec'ing another helper that does the same | As intended: the first PASSes with 1 call "not counted", the second FAILs |
-| 2026-11-07 | M4 commit 6 | `glacier-bench --dataset stress` (import incl. 103 SVGs, decode, render, select/move, save, recovery snapshot, open) | PASS: no AF_INET/AF_INET6 activity; 6 AF_UNIX calls |
+| 2026-11-07 | `c9bc2a5` | `glacier-bench --dataset stress` (import incl. 103 SVGs, decode, render, select/move, save, recovery snapshot, open) | PASS: no AF_INET/AF_INET6 activity; 6 AF_UNIX calls |
 
 Environment: CachyOS, KDE Plasma 6.8.2 (Wayland), strace 7.3, util-linux 2.42.4.
