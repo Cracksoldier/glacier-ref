@@ -23,6 +23,6 @@ Result (2026-11-07, maintainer, CachyOS KDE Plasma Wayland, build `7cc43d5`): **
 | 14 | G (grayscale), Board Background… | Images gray (notes not); background changes; both undoable | ✅| |
 | 15 | Ctrl+N; in window 1 select some items, Ctrl+C; in window 2 Ctrl+V | Items appear in window 2 with images |✅ | |
 | 16 | Ctrl+D; Ctrl+X then Ctrl+V | Duplicate offset; cut/paste works | ✅| |
-| 17 | Select one image, Ctrl+Shift+C, paste into another app (e.g. Krita, GIMP) | Pasted with crop/flip applied |✅| crop and flip was applied, if possible rotation would also be useful |
+| 17 | Select one image, Ctrl+Shift+C, paste into another app (e.g. Krita, GIMP) | Pasted with crop/flip applied |✅| crop and flip was applied, if possible rotation would also be useful. → Rotation implemented after the demo (see M2.md) |
 | 18 | Right-click on an item and on empty canvas | Context menu shows relevant actions | ✅| |
 | 19 | Undo everything (Ctrl+Z repeatedly), then Redo everything | Board returns to empty, then to the final state exactly | ✅| |

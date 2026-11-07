@@ -11,8 +11,10 @@
 #include "glacier/core/SessionAssetStore.h"
 #include "glacier/editing/ClipboardFragment.h"
 #include "glacier/editing/CommandController.h"
+#include "glacier/editing/CopyImage.h"
 #include "glacier/editing/Geometry.h"
 #include "glacier/editing/Operations.h"
+#include "glacier/io/ImageDecoder.h"
 #include "glacier/io/ImageFormats.h"
 #include "glacier/io/MimeRouter.h"
 #include "glacier/platform/PlatformInfo.h"
@@ -539,7 +541,7 @@ void MainWindow::copyImage()
     info.format = *format;
     info.orientedSize = asset->orientedSize;
     const QRectF crop = image->crop;
-    const FlipState flip = flipState(m_document->worldTransform(image->id));
+    const Affine2D world = m_document->worldTransform(image->id);
     auto store = m_services.store();
     const Limits limits = m_services.limits();
     const QByteArray sha = asset->sha256;
@@ -556,24 +558,12 @@ void MainWindow::copyImage()
         QGuiApplication::clipboard()->setImage(result);
         emit copyImageFinished(true);
     });
-    watcher->setFuture(QtConcurrent::run(m_services.pool(), [store, limits, sha, info, crop, flip] {
+    watcher->setFuture(QtConcurrent::run(m_services.pool(), [store, limits, sha, info, crop, world] {
         const auto bytes = store->read(sha, limits.maxAssetBytes);
         if (!bytes)
             return QImage();
-        QImage decoded = io::decodeImage(*bytes, info, 0, limits);
-        if (decoded.isNull())
-            return decoded;
-        const QRect pixels = QRectF(crop.x() * decoded.width(), crop.y() * decoded.height(),
-                                    crop.width() * decoded.width(), crop.height() * decoded.height())
-                                 .toAlignedRect()
-                                 .intersected(decoded.rect());
-        QImage result = decoded.copy(pixels);
-        Qt::Orientations flips;
-        if (flip.horizontal)
-            flips |= Qt::Horizontal;
-        if (flip.vertical)
-            flips |= Qt::Vertical;
-        return flips ? result.flipped(flips) : result;
+        const QImage decoded = io::decodeImage(*bytes, info, 0, limits);
+        return copyImagePixels(decoded, crop, world, io::MaxDecodeSide);
     }));
 }
 

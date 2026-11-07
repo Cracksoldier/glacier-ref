@@ -43,29 +43,26 @@ double rotationDegrees(const Affine2D &t)
     return std::atan2(t.m12, t.m11) / DegToRad;
 }
 
-FlipState flipState(const Affine2D &t)
+Affine2D orientationOf(const Affine2D &t)
 {
-    FlipState state;
-    if (t.determinant() >= 0.0)
-        return state; // no mirroring
-    // A mirrored transform is either "flip horizontally, then rotate by phiH"
-    // or "flip vertically, then rotate by phiV", with phiH = phiV + 180.
-    // Copy Image drops the rotation, so pick the reading with the smaller one:
-    // a plain horizontal flip reads as horizontal, not as vertical + 180.
-    auto normalize = [](double deg) {
-        while (deg > 180.0)
-            deg -= 360.0;
-        while (deg <= -180.0)
-            deg += 360.0;
-        return deg;
-    };
-    const double phiV = normalize(std::atan2(t.m12, t.m11) / DegToRad);
-    const double phiH = normalize(phiV + 180.0);
-    if (std::abs(phiH) <= std::abs(phiV))
-        state.horizontal = true;
-    else
-        state.vertical = true;
-    return state;
+    // Column-vector form M = [[m11, m21], [m12, m22]]. The nearest rotation is
+    // [[c, -s], [s, c]] with angle atan2(m12 - m21, m11 + m22); the nearest
+    // reflection is [[c, s], [s, -c]] with angle atan2(m21 + m12, m11 - m22).
+    const bool mirrored = t.determinant() < 0.0;
+    const double angle = mirrored ? std::atan2(t.m21 + t.m12, t.m11 - t.m22) : std::atan2(t.m12 - t.m21, t.m11 + t.m22);
+    double c = std::cos(angle);
+    double s = std::sin(angle);
+    const double quarters = angle / (std::numbers::pi / 2.0);
+    if (std::abs(quarters - std::round(quarters)) < 1e-9) {
+        const int q = ((static_cast<int>(std::round(quarters)) % 4) + 4) % 4;
+        constexpr double Cos[] = {1.0, 0.0, -1.0, 0.0};
+        constexpr double Sin[] = {0.0, 1.0, 0.0, -1.0};
+        c = Cos[q];
+        s = Sin[q];
+    }
+    if (mirrored)
+        return Affine2D{c, s, s, -c, 0.0, 0.0};
+    return Affine2D{c, s, -s, c, 0.0, 0.0};
 }
 
 } // namespace glacier::editing

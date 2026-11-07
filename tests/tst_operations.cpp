@@ -1,10 +1,13 @@
 #include "GlacierTestMain.h"
 #include "TestBoards.h"
 
+#include "glacier/editing/CopyImage.h"
 #include "glacier/editing/Geometry.h"
 #include "glacier/editing/Operations.h"
 
+#include <QColor>
 #include <QGuiApplication>
+#include <QImage>
 #include <QObject>
 #include <QSet>
 
@@ -50,15 +53,84 @@ private slots:
         QVERIFY(fuzzyPoint(g.map({10, 0}), {10, 0}));
     }
 
-    void flipStateReadsNaturally()
+    void orientationRemovesScaleAndTranslation()
     {
-        QCOMPARE(flipState(Affine2D()).horizontal, false);
-        const FlipState h = flipState(Affine2D::scaling(-1, 1));
-        QVERIFY(h.horizontal && !h.vertical);
-        const FlipState v = flipState(Affine2D::scaling(1, -1));
-        QVERIFY(v.vertical && !v.horizontal);
-        const FlipState rotated = flipState(Affine2D::scaling(-1, 1) * rotationAbout({0, 0}, 30));
-        QVERIFY(rotated.horizontal);
+        QCOMPARE(orientationOf(Affine2D()), Affine2D());
+        // Mirroring survives; the stretch does not.
+        QCOMPARE(orientationOf(Affine2D::scaling(-2, 3)), Affine2D::scaling(-1, 1));
+        QCOMPARE(orientationOf(Affine2D::scaling(2, -0.5)), Affine2D::scaling(1, -1));
+        // Quarter turns are exact, whatever the scale and position.
+        const Affine2D quarter = Affine2D::scaling(1.5, 1.5) * rotationAbout({10, 20}, 90) * Affine2D::translation(5, 7);
+        QCOMPARE(orientationOf(quarter), (Affine2D{0, 1, -1, 0, 0, 0}));
+        QCOMPARE(orientationOf(rotationAbout({0, 0}, -270)), (Affine2D{0, 1, -1, 0, 0, 0}));
+        // Free angles, also after a stretch in the item's own frame.
+        const Affine2D r30 = rotationAbout({0, 0}, 30);
+        const Affine2D o = orientationOf(Affine2D::scaling(3, 1) * r30 * Affine2D::translation(4, 4));
+        QVERIFY(qAbs(o.m11 - r30.m11) < 1e-12 && qAbs(o.m12 - r30.m12) < 1e-12);
+        QVERIFY(qAbs(o.m21 - r30.m21) < 1e-12 && qAbs(o.m22 - r30.m22) < 1e-12);
+        const Affine2D mirrored = orientationOf(Affine2D::scaling(-2, 2) * r30);
+        QVERIFY(qAbs(mirrored.determinant() + 1.0) < 1e-12);
+        QVERIFY(fuzzyPoint(mirrored.map({1, 0}), (Affine2D::scaling(-1, 1) * r30).map({1, 0})));
+    }
+
+    void copyImagePixelsQuarterTurnsAreLossless_data()
+    {
+        QTest::addColumn<int>("quarters");
+        QTest::addColumn<bool>("mirror");
+        for (int q = 0; q < 4; ++q)
+            for (bool m : {false, true})
+                QTest::addRow("%d deg%s", q * 90, m ? " mirrored" : "") << q << m;
+    }
+
+    void copyImagePixelsQuarterTurnsAreLossless()
+    {
+        QFETCH(int, quarters);
+        QFETCH(bool, mirror);
+        QImage source(5, 3, QImage::Format_RGB32);
+        for (int y = 0; y < source.height(); ++y)
+            for (int x = 0; x < source.width(); ++x)
+                source.setPixel(x, y, qRgb(x * 50, y * 100, 7));
+        // Scale and translation on the board must not matter.
+        const Affine2D world = (mirror ? Affine2D::scaling(-1, 1) : Affine2D()) * Affine2D::scaling(2.5, 2.5)
+            * rotationAbout({3, 4}, quarters * 90.0) * Affine2D::translation(100, -50);
+        const QImage result = copyImagePixels(source, QRectF(0, 0, 1, 1), world, 8192);
+        const Affine2D u = orientationOf(world);
+        const QRectF bounds = u.mapRect(QRectF(source.rect()));
+        QCOMPARE(result.size(), bounds.size().toSize());
+        for (int y = 0; y < source.height(); ++y) {
+            for (int x = 0; x < source.width(); ++x) {
+                const QPointF q = u.map({x + 0.5, y + 0.5}) - bounds.topLeft();
+                QCOMPARE(QColor(result.pixel(int(q.x()), int(q.y()))), QColor(source.pixel(x, y)));
+            }
+        }
+    }
+
+    void copyImagePixelsCropsFreeAnglesAndLimits()
+    {
+        QImage source(4, 2, QImage::Format_RGB32);
+        for (int y = 0; y < 2; ++y)
+            for (int x = 0; x < 4; ++x)
+                source.setPixel(x, y, qRgb(x * 60, y * 120, 0));
+        const QImage cropped = copyImagePixels(source, QRectF(0.5, 0, 0.5, 1), Affine2D(), 8192);
+        QCOMPARE(cropped.size(), QSize(2, 2));
+        QCOMPARE(QColor(cropped.pixel(0, 1)), QColor(source.pixel(2, 1)));
+
+        QImage plain(100, 50, QImage::Format_RGB32);
+        plain.fill(qRgb(200, 40, 40));
+        const QImage turned = copyImagePixels(plain, QRectF(0, 0, 1, 1), rotationAbout({0, 0}, 30), 8192);
+        const QSizeF expected = rotationAbout({0, 0}, 30).mapRect(QRectF(0, 0, 100, 50)).size();
+        QVERIFY(qAbs(turned.width() - expected.width()) <= 2 && qAbs(turned.height() - expected.height()) <= 2);
+        QVERIFY(turned.hasAlphaChannel());
+        QCOMPARE(qAlpha(turned.pixel(0, 0)), 0); // transparent corner
+        const QColor centre = QColor::fromRgba(turned.pixel(turned.width() / 2, turned.height() / 2));
+        QCOMPARE(centre.alpha(), 255);
+        QVERIFY(qAbs(centre.red() - 200) <= 1 && qAbs(centre.green() - 40) <= 1);
+
+        const QImage limited = copyImagePixels(plain, QRectF(0, 0, 1, 1), rotationAbout({0, 0}, 45), 64);
+        QVERIFY(qMax(limited.width(), limited.height()) <= 65);
+        QCOMPARE(copyImagePixels(plain, QRectF(0, 0, 1, 1), rotationAbout({0, 0}, 90), 40).size(), QSize(20, 40));
+        QVERIFY(copyImagePixels(QImage(), QRectF(0, 0, 1, 1), Affine2D(), 8192).isNull());
+        QVERIFY(copyImagePixels(plain, QRectF(2, 2, 1, 1), Affine2D(), 8192).isNull());
     }
 
     void transformAndRotateAboutSelection()
@@ -76,7 +148,7 @@ private slots:
         QVERIFY(fuzzyRect(m_doc->worldBounds(m_ids[0]), QRectF(200, 0, 100, 100)));
         QVERIFY(fuzzyRect(m_doc->worldBounds(m_ids[1]), QRectF(0, 0, 100, 100)));
         QVERIFY(m_doc->worldTransform(m_ids[0]).determinant() < 0);
-        QVERIFY(flipState(m_doc->worldTransform(m_ids[0])).horizontal);
+        QCOMPARE(orientationOf(m_doc->worldTransform(m_ids[0])), Affine2D::scaling(-1, 1));
     }
 
     void cropKeepsImageFeaturesInPlace()

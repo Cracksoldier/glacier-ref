@@ -24,13 +24,10 @@ double snapAngle(double degrees, double step = 15.0);
 // Rotation of a transform's linear part, in degrees (atan2 of the x axis).
 double rotationDegrees(const Affine2D &transform);
 
-// Whether the transform mirrors the image horizontally / vertically once its
-// rotation is removed (for Copy Image, spec §3). Shear is ignored.
-struct FlipState
-{
-    bool horizontal = false;
-    bool vertical = false;
-};
-FlipState flipState(const Affine2D &transform);
+// The orientation of a transform: the rotation or reflection nearest to its
+// linear part (polar decomposition), with scale, stretch and translation
+// removed. Exact (entries 0 and +-1) for multiples of 90 degrees, so pixel
+// operations stay lossless. Used by Copy Image (spec §3).
+Affine2D orientationOf(const Affine2D &transform);
 
 } // namespace glacier::editing

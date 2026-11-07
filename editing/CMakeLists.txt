@@ -1,11 +1,13 @@
 add_library(glacier_editing STATIC
     include/glacier/editing/ClipboardFragment.h
     include/glacier/editing/CommandController.h
+    include/glacier/editing/CopyImage.h
     include/glacier/editing/Geometry.h
     include/glacier/editing/NoteLayout.h
     include/glacier/editing/Operations.h
     src/ClipboardFragment.cpp
     src/CommandController.cpp
+    src/CopyImage.cpp
     src/Geometry.cpp
     src/NoteLayout.cpp
     src/Operations.cpp)

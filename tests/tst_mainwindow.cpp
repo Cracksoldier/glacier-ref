@@ -244,21 +244,25 @@ private slots:
         QCOMPARE(window.document()->itemCount(), 4);
     }
 
-    void copyImageAppliesCropAndFlip()
+    void copyImageKeepsCropFlipAndRotation()
     {
         MainWindow window(*m_services);
         QVERIFY(importThree(window));
         const Id red = window.document()->topLevelIdsByZ().first(); // 120x80, white pixel top-left
         QVERIFY(window.controller()->run(ops::setCrop(*window.document(), red, QRectF(0, 0, 0.5, 1)), u"Crop"_s));
         QVERIFY(window.controller()->run(ops::flip(*window.document(), {red}, Qt::Horizontal), u"Flip"_s));
+        QVERIFY(window.controller()->run(ops::rotate(*window.document(), {red}, 90), u"Rotate"_s));
         window.boardScene()->selectIds({red});
         QSignalSpy finished(&window, &MainWindow::copyImageFinished);
         window.action(u"CopyImage"_s)->trigger();
         QVERIFY(finished.wait(10000));
         QVERIFY(finished.first().first().toBool());
         const QImage copied = QGuiApplication::clipboard()->image();
-        QCOMPARE(copied.size(), QSize(60, 80));                      // cropped to the left half
-        QCOMPARE(QColor(copied.pixel(59, 0)), QColor(255, 255, 255)); // flipped horizontally
+        // Cropped to the left half (60x80), flipped horizontally (white moves to the
+        // top-right corner), then turned 90 degrees clockwise (to the bottom-right).
+        QCOMPARE(copied.size(), QSize(80, 60));
+        QCOMPARE(QColor(copied.pixel(79, 59)), QColor(255, 255, 255));
+        QVERIFY(QColor(copied.pixel(0, 0)) != QColor(255, 255, 255));
     }
 
     void onlineOnlyDropShowsOfflineMessage()

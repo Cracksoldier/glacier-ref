@@ -114,7 +114,7 @@ A usable import-and-navigation prototype, reproducible datasets, import error ha
 - [x] **M2.09 — Notes:** Add Unicode plain-text notes with wrapping, resize-to-reflow, rotation, font size, foreground/background styling, and sensible undo coalescing.
 - [x] **M2.10 — Preview:** Add board background and grayscale preview without modifying image bytes; both are undoable and mark the board dirty, whereas pan/zoom never does.
 - [x] **M2.11 — Multi-window ownership:** Give each window its own board, undo history, selection, and worker-result routing. New/Open create windows in the current process; each launch is an independent process without single-instance forwarding.
-- [x] **M2.12 — Clipboard:** Implement Copy, Cut, Paste, and Duplicate of items within and between windows and processes using `application/x-glacierref-items`, plus Copy Image (crop and flip applied) to the system clipboard.
+- [x] **M2.12 — Clipboard:** Implement Copy, Cut, Paste, and Duplicate of items within and between windows and processes using `application/x-glacierref-items`, plus Copy Image (crop, flip and rotation applied) to the system clipboard.
 - [x] **M2.13 — Behavioral tests:** Verify transform/crop math, grouping invariants, lock behavior, command reversibility, clipboard round-trips, and text-editing shortcut priority.
 
 ### Deliverables
@@ -281,7 +281,7 @@ M6 reruns the full matrix. Earlier passing results must be revisited when subseq
 
 ## 11. Deferred scope
 
-The following are not v1 milestones: animated playback, PDFs/videos, drawing annotations, color picking, presentation mode, plugins, Blender/Unreal integrations, rich-text/Markdown notes, richer note styling, Copy Image with rotation applied, nested groups, board image export, full color-proofing, dragging items out to other applications, click-through window mode, per-image opacity, AVIF/HEIC/PSD import, UI translations, and compositor-specific always-on-top integration. `.pur` compatibility needs a separate feasibility investigation before any commitment. Networking, cloud synchronization, and accounts remain excluded.
+The following are not v1 milestones: animated playback, PDFs/videos, drawing annotations, color picking, presentation mode, plugins, Blender/Unreal integrations, rich-text/Markdown notes, richer note styling, nested groups, board image export, full color-proofing, dragging items out to other applications, click-through window mode, per-image opacity, AVIF/HEIC/PSD import, UI translations, and compositor-specific always-on-top integration. `.pur` compatibility needs a separate feasibility investigation before any commitment. Networking, cloud synchronization, and accounts remain excluded.
 
 ## 12. Milestone completion record
 
