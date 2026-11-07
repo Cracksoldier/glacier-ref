@@ -4,6 +4,9 @@
 
 #include <miniz.h>
 
+#include <cstdlib>
+#include <unordered_set>
+
 using namespace Qt::StringLiterals;
 
 namespace glacier::persistence {
@@ -28,6 +31,44 @@ size_t readFromDevice(void *opaque, mz_uint64 offset, void *data, size_t size)
     return read < 0 ? 0 : static_cast<size_t>(read);
 }
 
+// Allocator that remembers live blocks. miniz 3.1.2 does not free its deflate
+// state on some write-failure paths (e.g. a full disk); the writer releases
+// whatever is left when it is destroyed, without patching vendored code.
+struct TrackedHeap
+{
+    std::unordered_set<void *> live;
+
+    static void *alloc(void *opaque, size_t items, size_t size)
+    {
+        void *p = std::calloc(items, size);
+        if (p)
+            static_cast<TrackedHeap *>(opaque)->live.insert(p);
+        return p;
+    }
+    static void release(void *opaque, void *address)
+    {
+        if (!address)
+            return;
+        static_cast<TrackedHeap *>(opaque)->live.erase(address);
+        std::free(address);
+    }
+    static void *resize(void *opaque, void *address, size_t items, size_t size)
+    {
+        auto *heap = static_cast<TrackedHeap *>(opaque);
+        void *p = std::realloc(address, items * size);
+        if (p) {
+            heap->live.erase(address);
+            heap->live.insert(p);
+        }
+        return p;
+    }
+    ~TrackedHeap()
+    {
+        for (void *p : live)
+            std::free(p);
+    }
+};
+
 QString zipError(mz_zip_archive &zip)
 {
     return QString::fromLatin1(mz_zip_get_error_string(mz_zip_get_last_error(&zip)));
@@ -39,6 +80,7 @@ QString zipError(mz_zip_archive &zip)
 
 struct ZipWriter::Impl
 {
+    TrackedHeap heap; // destroyed after zip has ended (declared first)
     mz_zip_archive zip;
     bool open = false;
     bool finished = false;
@@ -50,6 +92,10 @@ ZipWriter::ZipWriter(QIODevice *device)
     mz_zip_zero_struct(&d->zip);
     d->zip.m_pWrite = &writeToDevice;
     d->zip.m_pIO_opaque = device;
+    d->zip.m_pAlloc = &TrackedHeap::alloc;
+    d->zip.m_pFree = &TrackedHeap::release;
+    d->zip.m_pRealloc = &TrackedHeap::resize;
+    d->zip.m_pAlloc_opaque = &d->heap;
     d->open = mz_zip_writer_init_v2(&d->zip, 0, 0);
     if (!d->open)
         m_error = zipError(d->zip);

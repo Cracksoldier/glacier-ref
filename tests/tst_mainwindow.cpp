@@ -10,7 +10,10 @@
 #include "glacier/editing/CommandController.h"
 #include "glacier/editing/Operations.h"
 #include "glacier/io/MimeRouter.h"
+#include "glacier/persistence/BoardSerializer.h"
+#include "glacier/persistence/DocumentLock.h"
 
+#include <QAbstractButton>
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
@@ -22,6 +25,8 @@
 #include <QObject>
 #include <QPointer>
 #include <QSignalSpy>
+#include <QStandardPaths>
+#include <QTimer>
 #include <QTemporaryDir>
 #include <QUrl>
 
@@ -51,6 +56,41 @@ class TestMainWindow : public QObject
         return path;
     }
 
+    // Answers the next message box with this object name (modal dialogs run
+    // their own event loop, so the answer comes from a timer).
+    static void answer(const QString &objectName, QMessageBox::StandardButton button,
+                       const QString &customButton = {})
+    {
+        auto *timer = new QTimer;
+        timer->setInterval(20);
+        QObject::connect(timer, &QTimer::timeout, timer, [timer, objectName, button, customButton] {
+            const auto widgets = QApplication::topLevelWidgets();
+            for (QWidget *w : widgets) {
+                auto *box = qobject_cast<QMessageBox *>(w);
+                if (!box || box->objectName() != objectName || !box->isVisible())
+                    continue;
+                timer->stop();
+                timer->deleteLater();
+                if (!customButton.isEmpty()) {
+                    for (QAbstractButton *b : box->buttons())
+                        if (b->text() == customButton)
+                            b->click();
+                } else {
+                    box->button(button)->click();
+                }
+                return;
+            }
+        });
+        timer->start();
+    }
+
+    static bool saveAndWait(MainWindow &window, const QString &path)
+    {
+        QSignalSpy finished(&window, &MainWindow::saveFinished);
+        window.saveAs(path);
+        return finished.wait(30000) && finished.first().first().toBool();
+    }
+
     // Imports three real images into a window (through the undo stack).
     bool importThree(MainWindow &window)
     {
@@ -66,6 +106,7 @@ class TestMainWindow : public QObject
 private slots:
     void initTestCase()
     {
+        QStandardPaths::setTestModeEnabled(true); // settings and app data stay out of the user's profile
         qRegisterMetaType<io::ImportBatchResult>();
         m_services = AppServices::create({m_root.path(), {}});
         QVERIFY(m_services);
@@ -96,6 +137,9 @@ private slots:
         QTest::addColumn<QString>("id");
         QTest::addColumn<QKeySequence>("shortcut");
         QTest::newRow("new window") << u"NewWindow"_s << QKeySequence(Qt::CTRL | Qt::Key_N);
+        QTest::newRow("open") << u"Open"_s << QKeySequence(Qt::CTRL | Qt::Key_O);
+        QTest::newRow("save") << u"Save"_s << QKeySequence(Qt::CTRL | Qt::Key_S);
+        QTest::newRow("save as") << u"SaveAs"_s << QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S);
         QTest::newRow("import") << u"ImportImages"_s << QKeySequence(Qt::CTRL | Qt::Key_I);
         QTest::newRow("close") << u"CloseWindow"_s << QKeySequence(Qt::CTRL | Qt::Key_W);
         QTest::newRow("undo") << u"Undo"_s << QKeySequence(Qt::CTRL | Qt::Key_Z);
@@ -274,6 +318,201 @@ private slots:
         const auto boxes = window.findChildren<QMessageBox *>();
         QCOMPARE(boxes.size(), 1);
         QCOMPARE(boxes.first()->text(), io::onlineImagesNotSupportedMessage());
+    }
+
+    // --- Board files (M3) ---------------------------------------------------
+
+    void saveAndOpenRoundTrip()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath(u"moodboard.glacierref"_s);
+        auto *first = new MainWindow(*m_services);
+        QVERIFY(importThree(*first));
+        QVERIFY(first->controller()->run(ops::createNote(*first->document(), {0, 0}, u"Notiz ✓"_s), u"Note"_s));
+        QVERIFY(first->isWindowModified());
+        QVERIFY(saveAndWait(*first, path));
+        QVERIFY(!first->controller()->isDirty());
+        QVERIFY(!first->isWindowModified());
+        QCOMPARE(first->filePath(), path);
+        QVERIFY(first->windowTitle().startsWith(u"moodboard.glacierref"_s));
+        QCOMPARE(first->document()->title(), u"moodboard"_s); // defaults to the file name
+        QVERIFY(QFile::exists(persistence::DocumentLock::lockPathFor(path)));
+        const Snapshot saved = first->document()->snapshotAll();
+
+        // Opening the open board activates its window.
+        QCOMPARE(MainWindow::openBoard(*m_services, path, nullptr), first);
+
+        // A second window for the same file (as another process would) is read-only.
+        auto second = std::make_unique<MainWindow>(*m_services);
+        answer(u"readOnlyNotice"_s, QMessageBox::Ok);
+        QSignalSpy loaded(second.get(), &MainWindow::boardLoaded);
+        second->loadBoard(path);
+        QVERIFY(loaded.wait(30000));
+        QVERIFY(loaded.first().first().toBool());
+        QVERIFY(second->isReadOnly());
+        QVERIFY(second->windowTitle().contains(u"read-only"_s));
+        QVERIFY(!second->action(u"Save"_s)->isEnabled());
+        QVERIFY(second->action(u"SaveAs"_s)->isEnabled());
+        QCOMPARE(second->document()->snapshotAll(), saved);
+        QVERIFY(!second->controller()->isDirty());
+        QCOMPARE(second->controller()->undoStack()->count(), 0);
+
+        // Closing the first window releases the lock; the next open is writable.
+        delete first;
+        QCOMPARE(MainWindow::openBoard(*m_services, path, nullptr), second.get()); // still shown there
+        second.reset();
+        QVERIFY(!QFile::exists(persistence::DocumentLock::lockPathFor(path)));
+        MainWindow third(*m_services);
+        QSignalSpy loadedThird(&third, &MainWindow::boardLoaded);
+        QCOMPARE(MainWindow::openBoard(*m_services, path, &third), &third); // reuses the empty window
+        QVERIFY(loadedThird.wait(30000));
+        QVERIFY(!third.isReadOnly());
+        QCOMPARE(third.document()->snapshotAll(), saved);
+        QCOMPARE(third.document()->notes().begin()->text, u"Notiz ✓"_s);
+    }
+
+    void openFailureClosesTheWindowOpenedForIt()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath(u"broken.glacierref"_s);
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("this is not a zip archive");
+        file.close();
+        MainWindow busy(*m_services);
+        QVERIFY(busy.controller()->run(ops::createNote(*busy.document(), {0, 0}, u"x"_s), u"Note"_s));
+        QVERIFY(!busy.isReusable());
+        answer(u"openFailedBox"_s, QMessageBox::Ok);
+        QPointer<MainWindow> opened = MainWindow::openBoard(*m_services, path, &busy);
+        QVERIFY(opened && opened.data() != &busy);
+        QTRY_VERIFY_WITH_TIMEOUT(opened.isNull(), 30000); // closed after the error
+        QCOMPARE(busy.document()->itemCount(), 1);
+    }
+
+    void editsDuringSaveStayDirty()
+    {
+        QTemporaryDir dir;
+        MainWindow window(*m_services);
+        QVERIFY(importThree(window));
+        QSignalSpy finished(&window, &MainWindow::saveFinished);
+        window.saveAs(dir.filePath(u"async.glacierref"_s));
+        QVERIFY(window.isSaving());
+        // An edit while the worker writes the snapshot.
+        QVERIFY(window.controller()->run(ops::createNote(*window.document(), {0, 0}, u"later"_s), u"Note"_s));
+        QVERIFY(finished.wait(30000));
+        QVERIFY(finished.first().first().toBool());
+        QVERIFY(window.controller()->isDirty());
+        QVERIFY(window.isWindowModified());
+        window.controller()->undoStack()->undo(); // back to the saved state
+        QVERIFY(!window.controller()->isDirty());
+    }
+
+    void failedSaveKeepsChangesDirty()
+    {
+        MainWindow window(*m_services);
+        QVERIFY(importThree(window));
+        QTemporaryDir dir;
+        // The lock can be taken, but the target is a folder: writing fails.
+        QVERIFY(QDir(dir.path()).mkdir(u"board.glacierref"_s));
+        answer(u"saveFailedBox"_s, QMessageBox::Ok);
+        QSignalSpy finished(&window, &MainWindow::saveFinished);
+        window.saveAs(dir.filePath(u"board.glacierref"_s));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
+        QCOMPARE(finished.first().first().toBool(), false);
+        QVERIFY(window.controller()->isDirty());
+        QVERIFY(window.filePath().isEmpty());
+
+        // A folder that doesn't exist can't even be locked: explained, nothing saved.
+        answer(u"saveAsBlockedBox"_s, QMessageBox::Ok);
+        bool outcome = true;
+        window.saveAs(dir.filePath(u"missing/board.glacierref"_s), [&outcome](bool ok) { outcome = ok; });
+        QVERIFY(!outcome);
+        QVERIFY(window.controller()->isDirty());
+    }
+
+    void externalModificationIsNotOverwrittenSilently()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath(u"shared.glacierref"_s);
+        MainWindow window(*m_services);
+        QVERIFY(importThree(window));
+        QVERIFY(saveAndWait(window, path));
+        QFile other(path);
+        QVERIFY(other.open(QIODevice::WriteOnly | QIODevice::Append));
+        other.write("changed by someone else");
+        other.close();
+        const persistence::FileFingerprint external = persistence::FileFingerprint::of(path);
+        QVERIFY(window.controller()->run(ops::createNote(*window.document(), {0, 0}, u"x"_s), u"Note"_s));
+
+        answer(u"externalModificationBox"_s, QMessageBox::Cancel);
+        bool outcome = true;
+        window.save([&outcome](bool ok) { outcome = ok; });
+        QVERIFY(!outcome);
+        QCOMPARE(persistence::FileFingerprint::of(path), external); // untouched
+
+        answer(u"externalModificationBox"_s, QMessageBox::NoButton, u"Replace"_s);
+        QSignalSpy finished(&window, &MainWindow::saveFinished);
+        window.save();
+        QVERIFY(finished.wait(30000));
+        QVERIFY(finished.first().first().toBool());
+        QVERIFY(!window.controller()->isDirty());
+    }
+
+    void closePromptsForUnsavedChanges()
+    {
+        auto *window = new MainWindow(*m_services);
+        window->setAttribute(Qt::WA_DeleteOnClose);
+        QPointer<MainWindow> guard(window);
+        window->show();
+        QVERIFY(window->controller()->run(ops::createNote(*window->document(), {0, 0}, u"x"_s), u"Note"_s));
+
+        answer(u"unsavedChangesBox"_s, QMessageBox::Cancel);
+        QVERIFY(!window->close());
+        QVERIFY(guard);
+
+        answer(u"unsavedChangesBox"_s, QMessageBox::Discard);
+        QVERIFY(window->close());
+        QTRY_VERIFY(guard.isNull());
+    }
+
+    void saveShortcutWorksWhileEditingANote()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath(u"notes.glacierref"_s);
+        MainWindow window(*m_services);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        window.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        QVERIFY(saveAndWait(window, path));
+
+        window.boardView()->setFocus();
+        window.boardView()->beginNewNote({100, 100});
+        QVERIFY(window.boardView()->isTextEditing());
+        QTest::keyClicks(window.boardView(), u"fhs"_s); // canvas keys go to the text
+        QSignalSpy finished(&window, &MainWindow::saveFinished);
+        QTest::keyClick(window.boardView(), Qt::Key_S, Qt::ControlModifier);
+        QVERIFY(finished.wait(30000));
+        QVERIFY(!window.boardView()->isTextEditing()); // committed first
+        QCOMPARE(window.document()->notes().size(), 1);
+        QCOMPARE(window.document()->notes().begin()->text, u"fhs"_s);
+        QVERIFY(!window.controller()->isDirty());
+
+        const persistence::LoadResult loaded = persistence::loadBoard(path, m_services->store(), m_services->limits());
+        QVERIFY(loaded.content);
+        QCOMPARE(loaded.content->snapshot.notes.size(), 1);
+    }
+
+    void boardTitleIsUndoable()
+    {
+        MainWindow window(*m_services);
+        DocumentChange change;
+        change.title = u"Robots"_s;
+        QVERIFY(window.controller()->run(change, u"Board Title"_s));
+        QCOMPARE(window.document()->title(), u"Robots"_s);
+        QVERIFY(window.controller()->isDirty());
+        window.action(u"Undo"_s)->trigger();
+        QCOMPARE(window.document()->title(), QString());
     }
 
     void quitClosesWindowCleanly()

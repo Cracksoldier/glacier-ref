@@ -37,6 +37,8 @@ int main(int argc, char *argv[])
         u"platform-info"_s,
         QApplication::translate("main", "Print platform information (Qt platform plugin, session, screens) and exit."));
     parser.addOption(platformInfoOption);
+    parser.addPositionalArgument(u"boards"_s, QApplication::translate("main", "Boards (.glacierref) to open."),
+                                 u"[boards...]"_s);
     parser.process(app);
 
     if (parser.isSet(versionOption)) {
@@ -59,6 +61,9 @@ int main(int argc, char *argv[])
     auto *window = new glacier::MainWindow(*services);
     window->setAttribute(Qt::WA_DeleteOnClose); // more windows via File > New Window
     window->show();
+    // The first board loads into the first window, others into new windows.
+    for (const QString &board : parser.positionalArguments())
+        glacier::MainWindow::openBoard(*services, board, window);
     const int status = QApplication::exec();
 
     // Windows must be gone before the services they use.

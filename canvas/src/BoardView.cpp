@@ -538,8 +538,14 @@ void BoardView::contextMenuEvent(QContextMenuEvent *event)
 bool BoardView::event(QEvent *event)
 {
     // Text editing takes priority over canvas shortcuts (spec §3): while a note
-    // is being edited, every key goes to the editor.
+    // is being edited, every key goes to the editor, except the window's file
+    // commands (Save, Open, Close, ...), which commit the text first.
     if (event->type() == QEvent::ShortcutOverride && m_editingNote) {
+        const auto *key = static_cast<QKeyEvent *>(event);
+        const QKeySequence pressed(key->keyCombination());
+        if (std::any_of(m_textPassThrough.cbegin(), m_textPassThrough.cend(),
+                        [&pressed](const QKeySequence &s) { return s == pressed; }))
+            return QGraphicsView::event(event); // not accepted: the shortcut fires
         event->accept();
         return true;
     }

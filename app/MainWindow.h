@@ -1,15 +1,22 @@
 #pragma once
 
+#include "glacier/editing/CommandController.h"
 #include "glacier/io/ImportService.h"
+#include "glacier/persistence/BoardSerializer.h"
+#include "glacier/persistence/DocumentLock.h"
 
 #include <QHash>
 #include <QKeySequence>
 #include <QMainWindow>
 #include <QPointer>
 
+#include <functional>
+#include <memory>
+
 class QAction;
 class QMenu;
 class QProgressDialog;
+class QMimeData;
 
 namespace glacier {
 
@@ -21,13 +28,10 @@ class BoardScene;
 class BoardView;
 } // namespace canvas
 
-namespace editing {
-class CommandController;
-struct OpResult;
-} // namespace editing
 
 // Top-level window. Each window owns one board document with its undo
-// history, scene, view, selection and import service (spec §3, §6).
+// history, scene, view, selection and import service (spec §3, §6), and the
+// board's file: path, document lock, read-only state and save state (§5).
 //
 // All commands are QActions registered by ID (spec §3: menu commands are the
 // canonical action registry); menus, the canvas context menu and shortcuts
@@ -49,6 +53,25 @@ public:
     QAction *action(const QString &id) const { return m_actions.value(id); }
     QStringList actionIds() const { return m_actions.keys(); }
 
+    // --- Board files ---------------------------------------------------------
+    QString filePath() const { return m_filePath; } // empty: untitled
+    bool isReadOnly() const { return m_readOnly; }
+    bool isSaving() const { return m_saving; }
+    bool isLoading() const { return m_loading; }
+    // Untitled, empty and unchanged: Open loads into this window.
+    bool isReusable() const;
+
+    // Opens a board (spec §3): activates the window that already shows it,
+    // reuses `current` if it is reusable, or opens a new window. Loading is
+    // asynchronous; the returned window emits boardLoaded().
+    static MainWindow *openBoard(AppServices &services, const QString &path, MainWindow *current);
+    // Loads a board into this window (asynchronous).
+    void loadBoard(const QString &path);
+    // Save: to the current file; untitled or read-only boards ask for a file.
+    void save(std::function<void(bool)> done = {});
+    // Save As without a dialog.
+    void saveAs(const QString &path, std::function<void(bool)> done = {});
+
     // Starts importing a plan, placing results around `anchor` (board coords).
     void importPlan(const io::ImportPlan &plan, QPointF anchor);
     // Builds the context menu for the current selection (also used by tests).
@@ -58,6 +81,11 @@ signals:
     // Emitted after a finished batch was applied (tests, benchmarks).
     void importApplied(const glacier::io::ImportBatchResult &result);
     void copyImageFinished(bool ok);
+    void boardLoaded(bool ok);
+    void saveFinished(bool ok);
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
 
 private:
     QAction *addAction(QMenu *menu, const QString &id, const QString &text, const QList<QKeySequence> &shortcuts = {});
@@ -68,6 +96,21 @@ private:
     void finishModes(); // commits text editing and crop before other commands
 
     void newWindow();
+    void openFromDialog();
+    void saveAsFromDialog(std::function<void(bool)> done);
+    void startSave(const QString &path, std::shared_ptr<persistence::DocumentLock> newLock,
+                   std::function<void(bool)> done);
+    void finishSave(const persistence::SaveResult &result, const QString &path,
+                    const persistence::BoardContent &content, editing::CommandController::Marker marker,
+                    std::shared_ptr<persistence::DocumentLock> newLock, std::function<void(bool)> done);
+    void applyLoaded(const QString &path, persistence::LoadResult result,
+                     std::shared_ptr<persistence::DocumentLock::Result> lock);
+    void showReadOnlyNotice(const persistence::DocumentLock::Holder &holder, const QString &reason);
+    void editBoardTitle();
+    void handleDrop(const QMimeData *mime, QPointF scenePos);
+    persistence::BoardContent currentContent() const;
+    QByteArray renderPreview() const;
+    QString displayFileName() const;
     void importImagesFromDialog();
     void importFolderFromDialog();
     void cut();
@@ -95,6 +138,16 @@ private:
     QHash<QString, QAction *> m_actions;                // owned via QObject parent
     QHash<quint64, QPointer<QProgressDialog>> m_progress;
     bool m_alwaysOnTopNoticeShown = false;
+
+    QString m_filePath;
+    std::shared_ptr<persistence::DocumentLock> m_lock; // null: no lock (untitled or read-only)
+    bool m_readOnly = false;
+    persistence::FileFingerprint m_fingerprint; // at the last load or save
+    bool m_saving = false;
+    bool m_loading = false;
+    bool m_closeWhenSaved = false;
+    bool m_closeConfirmed = false;
+    bool m_closeIfLoadFails = false; // a window opened just for loading a board
 };
 
 } // namespace glacier

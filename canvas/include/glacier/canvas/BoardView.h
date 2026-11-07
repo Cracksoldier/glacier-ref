@@ -6,6 +6,8 @@
 #include "glacier/editing/Operations.h"
 
 #include <QElapsedTimer>
+#include <QKeySequence>
+#include <QList>
 #include <QGraphicsView>
 #include <QPointF>
 #include <QPointer>
@@ -66,6 +68,9 @@ public:
     void commitTextEdit();
     void enterGroup(const Id &groupId);
     void leaveGroup();
+
+    // Shortcuts that still reach the window while a note is being edited.
+    void setTextEditingPassThrough(const QList<QKeySequence> &shortcuts) { m_textPassThrough = shortcuts; }
 
     // Runs an edit through the controller; shows its error or lock notice.
     bool runEdit(const editing::OpResult &result, const QString &text);
@@ -136,6 +141,7 @@ private:
 
     QString m_toast;
     QTimer m_toastTimer;
+    QList<QKeySequence> m_textPassThrough;
 };
 
 } // namespace glacier::canvas

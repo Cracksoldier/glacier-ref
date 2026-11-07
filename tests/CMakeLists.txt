@@ -55,6 +55,27 @@ glacier_add_test(tst_compatibility
 target_compile_definitions(tst_compatibility PRIVATE
     GLACIER_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures/boards")
 
+# Saves a board and stalls halfway, to be killed (tst_atomicsave).
+qt_add_executable(glacier_test_slowsaver helpers/slowsaver.cpp)
+glacier_configure_target(glacier_test_slowsaver)
+target_include_directories(glacier_test_slowsaver PRIVATE "${PROJECT_SOURCE_DIR}/tests/common")
+target_link_libraries(glacier_test_slowsaver PRIVATE glacier::persistence Qt6::Gui)
+set_target_properties(glacier_test_slowsaver PROPERTIES MACOSX_BUNDLE OFF WIN32_EXECUTABLE OFF)
+
+glacier_add_test(tst_atomicsave
+    SOURCES tst_atomicsave.cpp
+    LIBS glacier::persistence)
+target_compile_definitions(tst_atomicsave PRIVATE
+    GLACIER_SLOWSAVER_PATH="$<TARGET_FILE:glacier_test_slowsaver>")
+add_dependencies(tst_atomicsave glacier_test_slowsaver)
+
+glacier_add_test(tst_documentlock
+    SOURCES tst_documentlock.cpp
+    LIBS glacier::persistence)
+target_compile_definitions(tst_documentlock PRIVATE
+    GLACIER_LOCKHOLDER_PATH="$<TARGET_FILE:glacier_test_lockholder>")
+add_dependencies(tst_documentlock glacier_test_lockholder)
+
 glacier_add_test(tst_linkpaths
     SOURCES tst_linkpaths.cpp
     LIBS glacier::core)

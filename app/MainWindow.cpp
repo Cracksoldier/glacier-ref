@@ -17,13 +17,19 @@
 #include "glacier/io/ImageDecoder.h"
 #include "glacier/io/ImageFormats.h"
 #include "glacier/io/MimeRouter.h"
+#include "glacier/persistence/BoardSerializer.h"
+#include "glacier/persistence/DocumentLock.h"
 #include "glacier/platform/PlatformInfo.h"
 
 #include <QAction>
 #include <QApplication>
+#include <QBuffer>
 #include <QClipboard>
+#include <QCloseEvent>
 #include <QColorDialog>
+#include <QDir>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFutureWatcher>
 #include <QGuiApplication>
 #include <QInputDialog>
@@ -31,8 +37,12 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QPainter>
+#include <QPromise>
 #include <QProgressDialog>
+#include <QPushButton>
 #include <QSettings>
+#include <QUrl>
 #include <QtConcurrent/QtConcurrentRun>
 
 using namespace Qt::StringLiterals;
@@ -44,6 +54,29 @@ namespace {
 
 const QString ArrangeSpacingKey = u"layout/arrangeSpacing"_s;
 constexpr int DefaultArrangeSpacing = 20;
+const QString LastBoardDirectoryKey = u"files/lastDirectory"_s;
+const QString BoardSuffix = u"glacierref"_s;
+constexpr int PreviewSide = 512;
+constexpr int ProgressDelayMs = 300;
+
+QString boardFileFilter()
+{
+    return QCoreApplication::translate("glacier::MainWindow", "Glacier Ref boards (*.glacierref)");
+}
+
+bool isBoardFile(const QString &path)
+{
+    return QFileInfo(path).suffix().compare(BoardSuffix, Qt::CaseInsensitive) == 0;
+}
+
+bool samePath(const QString &a, const QString &b)
+{
+#ifdef Q_OS_WIN
+    return QFileInfo(a).absoluteFilePath().compare(QFileInfo(b).absoluteFilePath(), Qt::CaseInsensitive) == 0;
+#else
+    return QFileInfo(a).absoluteFilePath() == QFileInfo(b).absoluteFilePath();
+#endif
+}
 
 QKeySequence key(QKeyCombination combination)
 {
@@ -68,9 +101,12 @@ MainWindow::MainWindow(AppServices &services, QWidget *parent)
     createActions();
     updateTitle();
 
-    connect(m_view, &canvas::BoardView::dropReceived, this, [this](const QMimeData *mime, QPointF scenePos) {
-        importPlan(io::routeMimeData(*mime), scenePos);
-    });
+    connect(m_view, &canvas::BoardView::dropReceived, this, &MainWindow::handleDrop);
+    // File commands still work while a note is edited; they commit it first.
+    QList<QKeySequence> passThrough;
+    for (const QString &id : {u"Save"_s, u"SaveAs"_s, u"Open"_s, u"NewWindow"_s, u"CloseWindow"_s, u"Quit"_s})
+        passThrough.append(m_actions.value(id)->shortcuts());
+    m_view->setTextEditingPassThrough(passThrough);
     connect(m_view, &canvas::BoardView::contextMenuRequested, this, [this](QPoint globalPos) {
         QMenu *menu = createContextMenu(this);
         menu->setAttribute(Qt::WA_DeleteOnClose);
@@ -100,9 +136,18 @@ QList<Id> MainWindow::selection() const
     return m_scene->selectedIds();
 }
 
+QString MainWindow::displayFileName() const
+{
+    return m_filePath.isEmpty() ? tr("Untitled") : QFileInfo(m_filePath).fileName();
+}
+
 void MainWindow::updateTitle()
 {
-    setWindowTitle(tr("Untitled[*] — %1").arg(app_info::displayName()));
+    QString name = displayFileName() + u"[*]"_s;
+    if (m_readOnly)
+        name += u' ' + tr("(read-only)");
+    setWindowTitle(name + u" — "_s + app_info::displayName());
+    setWindowFilePath(m_filePath);
     setWindowModified(m_controller->isDirty());
 }
 
@@ -150,6 +195,14 @@ void MainWindow::createActions()
     QMenu *file = menuBar()->addMenu(tr("&File"));
     addAction(file, u"NewWindow"_s, tr("&New Window"), {key(Qt::CTRL | Qt::Key_N)});
     on(u"NewWindow"_s, &MainWindow::newWindow);
+    addAction(file, u"Open"_s, tr("&Open…"), {key(Qt::CTRL | Qt::Key_O)});
+    on(u"Open"_s, &MainWindow::openFromDialog);
+    addAction(file, u"Save"_s, tr("&Save"), {key(Qt::CTRL | Qt::Key_S)});
+    on(u"Save"_s, [this] { save(); });
+    addAction(file, u"SaveAs"_s, tr("Save &As…"), {key(Qt::CTRL | Qt::SHIFT | Qt::Key_S)});
+    on(u"SaveAs"_s, [this] { saveAsFromDialog({}); });
+    addAction(file, u"BoardTitle"_s, tr("Board &Title…"));
+    on(u"BoardTitle"_s, &MainWindow::editBoardTitle);
     file->addSeparator();
     addAction(file, u"ImportImages"_s, tr("&Import Images…"), {key(Qt::CTRL | Qt::Key_I)});
     on(u"ImportImages"_s, &MainWindow::importImagesFromDialog);
@@ -410,6 +463,10 @@ void MainWindow::updateActionStates()
     for (const QString &id : {u"Raise"_s, u"Lower"_s, u"BringToFront"_s, u"SendToBack"_s})
         set(id, editable);
     set(u"FitSelection"_s, any);
+    // Read-only boards can't be saved in place (spec §5); Save As can.
+    set(u"Save"_s, !m_readOnly && !m_saving && !m_loading);
+    set(u"SaveAs"_s, !m_saving && !m_loading);
+    set(u"Open"_s, true);
     if (QAction *gray = m_actions.value(u"Grayscale"_s))
         gray->setChecked(doc.view().grayscale);
 }
@@ -421,6 +478,434 @@ void MainWindow::newWindow()
     auto *window = new MainWindow(m_services);
     window->setAttribute(Qt::WA_DeleteOnClose);
     window->show();
+}
+
+bool MainWindow::isReusable() const
+{
+    return m_filePath.isEmpty() && !m_loading && !m_saving && m_document->itemCount() == 0
+        && m_controller->undoStack()->count() == 0 && !m_controller->isDirty() && !m_import->isBusy();
+}
+
+MainWindow *MainWindow::openBoard(AppServices &services, const QString &path, MainWindow *current)
+{
+    const QString absolute = QFileInfo(path).absoluteFilePath();
+    const auto widgets = QApplication::topLevelWidgets();
+    for (QWidget *widget : widgets) {
+        auto *window = qobject_cast<MainWindow *>(widget);
+        if (window && !window->filePath().isEmpty() && samePath(window->filePath(), absolute)) {
+            window->show();
+            window->raise();
+            window->activateWindow();
+            return window;
+        }
+    }
+    MainWindow *target = current && current->isReusable() ? current : nullptr;
+    if (!target) {
+        target = new MainWindow(services);
+        target->setAttribute(Qt::WA_DeleteOnClose);
+        target->m_closeIfLoadFails = true;
+        target->show();
+    }
+    target->loadBoard(absolute);
+    return target;
+}
+
+void MainWindow::openFromDialog()
+{
+    finishModes();
+    QSettings settings;
+    const QString path = QFileDialog::getOpenFileName(this, tr("Open Board"),
+                                                      settings.value(LastBoardDirectoryKey).toString(),
+                                                      boardFileFilter());
+    if (path.isEmpty())
+        return;
+    settings.setValue(LastBoardDirectoryKey, QFileInfo(path).absolutePath());
+    openBoard(m_services, path, this);
+}
+
+void MainWindow::loadBoard(const QString &path)
+{
+    const QString absolute = QFileInfo(path).absoluteFilePath();
+    m_loading = true;
+    updateActionStates();
+    // Lock first (spec §5): a board locked elsewhere opens read-only.
+    auto lock = std::make_shared<persistence::DocumentLock::Result>(persistence::DocumentLock::acquire(absolute));
+
+    auto *dialog = new QProgressDialog(tr("Opening “%1”…").arg(QFileInfo(absolute).fileName()), QString(), 0, 0, this);
+    dialog->setWindowModality(Qt::WindowModal);
+    dialog->setMinimumDuration(ProgressDelayMs);
+    dialog->setCancelButton(nullptr);
+    auto *watcher = new QFutureWatcher<persistence::LoadResult>(this);
+    connect(watcher, &QFutureWatcherBase::progressRangeChanged, dialog, &QProgressDialog::setRange);
+    connect(watcher, &QFutureWatcherBase::progressValueChanged, dialog, &QProgressDialog::setValue);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, dialog, absolute, lock] {
+        dialog->deleteLater();
+        watcher->deleteLater();
+        applyLoaded(absolute, watcher->result(), lock);
+    });
+    const auto store = m_services.store();
+    const Limits limits = m_services.limits();
+    watcher->setFuture(QtConcurrent::run(m_services.pool(), [absolute, store, limits](QPromise<persistence::LoadResult> &promise) {
+        promise.addResult(persistence::loadBoard(absolute, store, limits, [&promise](int done, int total) {
+            promise.setProgressRange(0, total);
+            promise.setProgressValue(done);
+        }));
+    }));
+}
+
+void MainWindow::applyLoaded(const QString &path, persistence::LoadResult result,
+                             std::shared_ptr<persistence::DocumentLock::Result> lock)
+{
+    m_loading = false;
+    const QString name = QFileInfo(path).fileName();
+    QString error = result.error;
+    if (result.content && !isReusable())
+        error = tr("the window is no longer empty"); // e.g. an import finished meanwhile
+    if (result.content && error.isEmpty()) {
+        DocumentChange change;
+        change.insert = result.content->snapshot;
+        change.view = result.content->view;
+        if (!m_document->apply(change, &error) || !m_document->setMetadata(result.content->metadata, &error))
+            result.content.reset();
+    }
+    if (!result.content || !error.isEmpty()) {
+        updateActionStates();
+        QMessageBox box(QMessageBox::Critical, tr("Open Board"), tr("“%1” could not be opened.").arg(name),
+                        QMessageBox::Ok, this);
+        box.setObjectName(u"openFailedBox"_s);
+        box.setInformativeText(error.isEmpty() ? tr("Unknown error.") : error);
+        box.exec();
+        emit boardLoaded(false);
+        if (m_closeIfLoadFails)
+            close();
+        return;
+    }
+
+    m_closeIfLoadFails = false;
+    m_controller->resetHistory();
+    m_filePath = path;
+    m_fingerprint = result.fingerprint;
+    if (lock->status == persistence::DocumentLock::Status::Acquired) {
+        m_lock = std::shared_ptr<persistence::DocumentLock>(std::move(lock->lock));
+        m_readOnly = false;
+    } else {
+        m_lock.reset();
+        m_readOnly = true;
+    }
+    m_view->setZoom(result.content->zoom, QPointF(m_view->viewport()->rect().center()));
+    m_view->centerOn(result.content->viewCenter);
+    QSettings().setValue(LastBoardDirectoryKey, QFileInfo(path).absolutePath());
+    updateTitle();
+    updateActionStates();
+    emit boardLoaded(true);
+    if (m_readOnly)
+        showReadOnlyNotice(lock->holder, lock->status == persistence::DocumentLock::Status::Unavailable
+                                             ? lock->error : QString());
+}
+
+void MainWindow::showReadOnlyNotice(const persistence::DocumentLock::Holder &holder, const QString &reason)
+{
+    QMessageBox box(QMessageBox::Information, tr("Opened Read-Only"),
+                    tr("“%1” was opened read-only.").arg(displayFileName()), QMessageBox::Ok, this);
+    box.setObjectName(u"readOnlyNotice"_s);
+    QString details;
+    if (!reason.isEmpty()) {
+        details = tr("The board can't be locked for editing: %1.").arg(reason);
+    } else if (holder.otherHost) {
+        details = tr("It is open in %1 on the computer “%2”.").arg(holder.application, holder.hostname);
+    } else {
+        details = tr("It is open in another Glacier Ref window or program.");
+    }
+    box.setInformativeText(details + u"\n\n"_s
+                           + tr("You can edit it, but changes can only be kept with Save As."));
+    QPushButton *removeLock = nullptr;
+    if (holder.otherHost)
+        removeLock = box.addButton(tr("Remove Lock…"), QMessageBox::DestructiveRole);
+    box.exec();
+    if (removeLock && box.clickedButton() == removeLock) {
+        const auto answer = QMessageBox::warning(
+            this, tr("Remove Lock"),
+            tr("Only remove the lock if “%1” is not open on “%2” anymore (for example after a crash). "
+               "Two people editing the same board can overwrite each other's work.")
+                .arg(displayFileName(), holder.hostname),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (answer == QMessageBox::Yes && persistence::DocumentLock::removeLock(m_filePath)) {
+            persistence::DocumentLock::Result again = persistence::DocumentLock::acquire(m_filePath);
+            if (again.status == persistence::DocumentLock::Status::Acquired) {
+                m_lock = std::shared_ptr<persistence::DocumentLock>(std::move(again.lock));
+                m_readOnly = false;
+                updateTitle();
+                updateActionStates();
+            }
+        }
+    }
+}
+
+persistence::BoardContent MainWindow::currentContent() const
+{
+    persistence::BoardContent content;
+    content.metadata = m_document->metadata();
+    content.snapshot = m_document->snapshotAll();
+    content.view = m_document->view();
+    content.viewCenter = m_view->viewCenter();
+    content.zoom = m_view->zoom();
+    return content;
+}
+
+QByteArray MainWindow::renderPreview() const
+{
+    const QRectF bounds = m_document->boundingRect();
+    if (bounds.isEmpty())
+        return {};
+    const double scale = PreviewSide / std::max(bounds.width(), bounds.height());
+    const QSize size = (bounds.size() * scale).toSize().expandedTo(QSize(1, 1));
+    QImage image(size, QImage::Format_ARGB32_Premultiplied);
+    image.fill(QColor::fromRgba(m_document->view().backgroundColor));
+    {
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::SmoothPixmapTransform);
+        m_scene->render(&painter, QRectF(QPointF(0, 0), QSizeF(size)), bounds);
+    }
+    QByteArray png;
+    QBuffer buffer(&png);
+    buffer.open(QIODevice::WriteOnly);
+    image.save(&buffer, "png");
+    return png;
+}
+
+void MainWindow::save(std::function<void(bool)> done)
+{
+    finishModes();
+    if (m_filePath.isEmpty() || m_readOnly) {
+        saveAsFromDialog(std::move(done));
+        return;
+    }
+    // External modification (spec §5): never overwrite silently.
+    const persistence::FileFingerprint now = persistence::FileFingerprint::of(m_filePath);
+    if (now.exists() && m_fingerprint.exists() && now != m_fingerprint) {
+        QMessageBox box(QMessageBox::Warning, tr("Save"),
+                        tr("“%1” was changed by another program since it was opened or last saved.")
+                            .arg(displayFileName()),
+                        QMessageBox::Cancel, this);
+        box.setObjectName(u"externalModificationBox"_s);
+        box.setInformativeText(tr("Replace it with this board, or save this board as a new file?"));
+        QPushButton *saveAs = box.addButton(tr("Save As…"), QMessageBox::AcceptRole);
+        QPushButton *replace = box.addButton(tr("Replace"), QMessageBox::DestructiveRole);
+        box.setDefaultButton(saveAs);
+        box.exec();
+        if (box.clickedButton() == saveAs) {
+            saveAsFromDialog(std::move(done));
+            return;
+        }
+        if (box.clickedButton() != replace) {
+            if (done)
+                done(false);
+            return;
+        }
+    }
+    startSave(m_filePath, nullptr, std::move(done));
+}
+
+void MainWindow::saveAsFromDialog(std::function<void(bool)> done)
+{
+    finishModes();
+    QSettings settings;
+    QString base = m_document->title().trimmed();
+    if (base.isEmpty())
+        base = m_filePath.isEmpty() ? tr("Untitled") : QFileInfo(m_filePath).completeBaseName();
+    const QString dir = m_filePath.isEmpty() ? settings.value(LastBoardDirectoryKey).toString()
+                                             : QFileInfo(m_filePath).absolutePath();
+    QString path = QFileDialog::getSaveFileName(this, tr("Save Board As"),
+                                                QDir(dir).filePath(base + u'.' + BoardSuffix), boardFileFilter());
+    if (path.isEmpty()) {
+        if (done)
+            done(false);
+        return;
+    }
+    if (!isBoardFile(path))
+        path += u'.' + BoardSuffix;
+    saveAs(path, std::move(done));
+}
+
+void MainWindow::saveAs(const QString &path, std::function<void(bool)> done)
+{
+    finishModes();
+    const QString absolute = QFileInfo(path).absoluteFilePath();
+    if (!m_filePath.isEmpty() && samePath(absolute, m_filePath) && !m_readOnly) {
+        startSave(m_filePath, nullptr, std::move(done));
+        return;
+    }
+    // Take the new file's lock before writing it (spec §5).
+    persistence::DocumentLock::Result lock = persistence::DocumentLock::acquire(absolute);
+    if (lock.status != persistence::DocumentLock::Status::Acquired) {
+        QMessageBox box(QMessageBox::Warning, tr("Save Board As"),
+                        lock.status == persistence::DocumentLock::Status::HeldElsewhere
+                            ? tr("“%1” is open in another window or program. Choose another name.")
+                                  .arg(QFileInfo(absolute).fileName())
+                            : tr("“%1” can't be written: %2.").arg(QFileInfo(absolute).fileName(), lock.error),
+                        QMessageBox::Ok, this);
+        box.setObjectName(u"saveAsBlockedBox"_s);
+        box.exec();
+        if (done)
+            done(false);
+        return;
+    }
+    startSave(absolute, std::shared_ptr<persistence::DocumentLock>(std::move(lock.lock)), std::move(done));
+}
+
+void MainWindow::startSave(const QString &path, std::shared_ptr<persistence::DocumentLock> newLock,
+                           std::function<void(bool)> done)
+{
+    if (m_saving) {
+        if (done)
+            done(false);
+        return;
+    }
+    finishModes();
+    // An immutable snapshot (spec §5): edits made during the save stay dirty.
+    persistence::SaveRequest request;
+    request.content = currentContent();
+    if (request.content.metadata.title.isEmpty())
+        request.content.metadata.title = QFileInfo(path).completeBaseName().left(BoardDocument::MaxTitleLength);
+    request.content.metadata.modified = QDateTime::currentDateTimeUtc();
+    request.path = path;
+    request.previewPng = renderPreview();
+    request.generator = app_info::displayName() + u' ' + app_info::version();
+    request.store = m_services.store();
+    request.limits = m_services.limits();
+    const CommandController::Marker marker = m_controller->currentMarker();
+    m_saving = true;
+    updateActionStates();
+
+    auto *dialog = new QProgressDialog(tr("Saving “%1”…").arg(QFileInfo(path).fileName()), QString(), 0, 0, this);
+    dialog->setWindowModality(Qt::NonModal);
+    dialog->setMinimumDuration(ProgressDelayMs);
+    dialog->setCancelButton(nullptr); // a save is never abandoned halfway
+    auto *watcher = new QFutureWatcher<persistence::SaveResult>(this);
+    connect(watcher, &QFutureWatcherBase::progressRangeChanged, dialog, &QProgressDialog::setRange);
+    connect(watcher, &QFutureWatcherBase::progressValueChanged, dialog, &QProgressDialog::setValue);
+    const persistence::BoardContent content = request.content;
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, dialog, path, content, marker, newLock, done = std::move(done)] {
+                dialog->deleteLater();
+                watcher->deleteLater();
+                finishSave(watcher->result(), path, content, marker, newLock, done);
+            });
+    watcher->setFuture(QtConcurrent::run(m_services.pool(), [request](QPromise<persistence::SaveResult> &promise) {
+        promise.addResult(persistence::saveBoard(request, [&promise](int d, int total) {
+            promise.setProgressRange(0, total);
+            promise.setProgressValue(d);
+        }));
+    }));
+}
+
+void MainWindow::finishSave(const persistence::SaveResult &result, const QString &path,
+                            const persistence::BoardContent &content, CommandController::Marker marker,
+                            std::shared_ptr<persistence::DocumentLock> newLock, std::function<void(bool)> done)
+{
+    m_saving = false;
+    if (result.ok) {
+        if (newLock) {
+            m_lock = std::move(newLock); // releases the previous file's lock
+            m_readOnly = false;
+        }
+        m_filePath = path;
+        m_fingerprint = result.fingerprint;
+        BoardMetadata metadata = m_document->metadata();
+        metadata.modified = content.metadata.modified;
+        if (metadata.title.isEmpty())
+            metadata.title = content.metadata.title;
+        m_document->setMetadata(metadata);
+        m_controller->markClean(marker);
+        QSettings().setValue(LastBoardDirectoryKey, QFileInfo(path).absolutePath());
+    } else {
+        QMessageBox box(QMessageBox::Critical, tr("Save"),
+                        tr("“%1” could not be saved.").arg(QFileInfo(path).fileName()), QMessageBox::Ok, this);
+        box.setObjectName(u"saveFailedBox"_s);
+        box.setInformativeText(result.error + u"\n\n"_s
+                               + tr("The previous version of the file was not changed. Your changes are still "
+                                    "here; try saving again or use Save As to choose another location."));
+        box.exec();
+    }
+    updateTitle();
+    updateActionStates();
+    emit saveFinished(result.ok);
+    if (done)
+        done(result.ok);
+    if (m_closeWhenSaved) {
+        m_closeWhenSaved = false;
+        close();
+    }
+}
+
+void MainWindow::editBoardTitle()
+{
+    finishModes();
+    bool ok = false;
+    const QString title = QInputDialog::getText(this, tr("Board Title"), tr("Title:"), QLineEdit::Normal,
+                                                m_document->title(), &ok);
+    if (!ok || title == m_document->title())
+        return;
+    DocumentChange change;
+    change.title = title.left(BoardDocument::MaxTitleLength);
+    QString error;
+    if (!m_controller->run(change, tr("Board Title"), &error))
+        m_view->showToast(error);
+}
+
+void MainWindow::handleDrop(const QMimeData *mime, QPointF scenePos)
+{
+    // Dropped boards open (spec §3); everything else is imported.
+    QStringList boards;
+    QStringList others;
+    for (const QUrl &url : mime->urls()) {
+        if (url.isLocalFile() && isBoardFile(url.toLocalFile()))
+            boards.append(url.toLocalFile());
+        else if (url.isLocalFile())
+            others.append(url.toLocalFile());
+    }
+    if (boards.isEmpty()) {
+        importPlan(io::routeMimeData(*mime), scenePos);
+        return;
+    }
+    for (const QString &board : std::as_const(boards))
+        openBoard(m_services, board, this);
+    if (!others.isEmpty())
+        importPlan(io::planForPaths(others), scenePos);
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    finishModes();
+    if (m_saving) {
+        m_closeWhenSaved = true; // close once the save has finished
+        event->ignore();
+        return;
+    }
+    if (m_closeConfirmed || !m_controller->isDirty()) {
+        event->accept();
+        return;
+    }
+    QMessageBox box(QMessageBox::Warning, tr("Unsaved Changes"),
+                    tr("Save the changes to “%1” before closing?").arg(displayFileName()),
+                    QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, this);
+    box.setObjectName(u"unsavedChangesBox"_s);
+    box.setInformativeText(tr("If you don't save, your changes will be lost."));
+    box.setDefaultButton(QMessageBox::Save);
+    const int answer = box.exec();
+    if (answer == QMessageBox::Discard) {
+        event->accept();
+        return;
+    }
+    event->ignore();
+    if (answer == QMessageBox::Save) {
+        save([this](bool ok) {
+            if (ok && !m_controller->isDirty()) {
+                m_closeConfirmed = true;
+                close();
+            }
+        });
+    }
 }
 
 void MainWindow::importPlan(const io::ImportPlan &plan, QPointF anchor)

@@ -11,7 +11,7 @@ add_library(glacier::app ALIAS glacier_app)
 glacier_configure_target(glacier_app)
 target_include_directories(glacier_app PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(glacier_app
-    PUBLIC glacier::core glacier::io glacier::editing glacier::canvas Qt6::Widgets Qt6::Concurrent
+    PUBLIC glacier::core glacier::io glacier::editing glacier::canvas glacier::persistence Qt6::Widgets Qt6::Concurrent
     PRIVATE glacier::platform)
 
 qt_add_executable(glacier-ref main.cpp)

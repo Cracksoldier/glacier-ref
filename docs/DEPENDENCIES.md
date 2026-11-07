@@ -60,6 +60,13 @@ verifies these properties and corruption detection.
 Why vendored rather than `FetchContent`: builds work offline and inside the
 Flatpak builder, which has no network access during the build.
 
+Known issue (3.1.2): when a write fails while an entry is being deflated
+(for example on a full disk), `mz_zip_writer_add_mem_ex_v2` returns without
+freeing its compressor state. `persistence::ZipWriter` therefore passes its
+own allocator, which tracks live blocks and frees any left over when the
+writer is destroyed; the vendored source stays unmodified. `tst_atomicsave`
+under ASan covers this path. Recheck it when updating miniz.
+
 To update: replace the files from the new release asset, update this table and
 `THIRD_PARTY_NOTICES.md`, and run the full test suite including `asan`.
 

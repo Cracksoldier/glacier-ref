@@ -62,6 +62,70 @@ private slots:
         QVERIFY(!controller.isDirty());
     }
 
+    // A05: a save completing after further edits leaves them dirty.
+    void asynchronousSaveKeepsNewerEditsDirty()
+    {
+        BoardDocument doc;
+        CommandController controller(&doc);
+        QSignalSpy dirty(&controller, &CommandController::dirtyChanged);
+        QVERIFY(controller.run(*doc.addImagesChange({fakeImage(1, {0, 0})}), u"Import"_s));
+        const CommandController::Marker saved = controller.currentMarker(); // save starts here
+        QVERIFY(controller.run(*doc.addImagesChange({fakeImage(2, {200, 0})}), u"Import"_s));
+        controller.markClean(saved); // ...and completes now
+        QVERIFY(controller.isDirty());
+        controller.undoStack()->undo();
+        QVERIFY(!controller.isDirty()); // back at the saved state
+        controller.undoStack()->redo();
+        QVERIFY(controller.isDirty());
+        QCOMPARE(dirty.last().first().toBool(), true);
+
+        // Undo past the saved state, then a new edit: the saved state is gone.
+        controller.undoStack()->undo();
+        controller.undoStack()->undo();
+        QVERIFY(controller.isDirty());
+        QVERIFY(controller.run(*doc.addImagesChange({fakeImage(3, {0, 200})}), u"Import"_s));
+        controller.undoStack()->undo();
+        QVERIFY(controller.isDirty()); // index 0, but the saved state had one item
+    }
+
+    void droppedCommandsShiftTheBaseState()
+    {
+        BoardDocument doc;
+        CommandController controller(&doc);
+        controller.undoStack()->setUndoLimit(3);
+        for (int i = 0; i < 3; ++i)
+            QVERIFY(controller.run(*doc.addImagesChange({fakeImage(i + 1, {i * 200.0, 0})}), u"Import"_s));
+        QVERIFY(controller.isDirty()); // the empty board was the clean state
+        QVERIFY(controller.run(*doc.addImagesChange({fakeImage(9, {0, 400})}), u"Import"_s)); // drops the first
+        QCOMPARE(controller.undoStack()->count(), 3);
+        while (controller.undoStack()->canUndo())
+            controller.undoStack()->undo();
+        QCOMPARE(doc.itemCount(), 1); // the dropped import remains
+        QVERIFY(controller.isDirty());
+        controller.markClean();
+        QVERIFY(!controller.isDirty());
+        controller.undoStack()->redo();
+        QVERIFY(controller.isDirty());
+    }
+
+    void neverCleanAndReset()
+    {
+        BoardDocument doc;
+        CommandController controller(&doc);
+        controller.markNeverClean(); // e.g. a recovered board
+        QVERIFY(controller.isDirty());
+        QVERIFY(controller.run(*doc.addImagesChange({fakeImage(1, {0, 0})}), u"Import"_s));
+        controller.undoStack()->undo();
+        QVERIFY(controller.isDirty());
+        controller.markClean();
+        QVERIFY(!controller.isDirty());
+
+        QVERIFY(controller.run(*doc.addImagesChange({fakeImage(2, {0, 0})}), u"Import"_s));
+        controller.resetHistory();
+        QVERIFY(!controller.isDirty());
+        QCOMPARE(controller.undoStack()->count(), 0);
+    }
+
     void rejectedEditsAreNotRecorded()
     {
         BoardDocument doc;
