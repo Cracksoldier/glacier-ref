@@ -113,9 +113,10 @@ jobs:
           chmod +x "$appimage"
           mv "$QT_ROOT_DIR" "$QT_ROOT_DIR.hidden"
           trap 'mv "$QT_ROOT_DIR.hidden" "$QT_ROOT_DIR"' EXIT
-          clean=(env -i "PATH=/usr/bin:/bin" "HOME=$HOME" APPIMAGE_EXTRACT_AND_RUN=1)
-          "${clean[@]}" "$appimage" --version
+          clean=(env -i "PATH=/usr/bin:/bin" "HOME=$HOME" LANG=C.UTF-8 APPIMAGE_EXTRACT_AND_RUN=1)
+          # Needs no display; --version and --platform-info start the GUI.
           "${clean[@]}" "$appimage" --check-image-formats
+          "${clean[@]}" xvfb-run -a "$appimage" --version
           "${clean[@]}" xvfb-run -a "$appimage" --platform-info
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -266,7 +267,7 @@ jobs:
           exe="$PWD/dist/stage/Glacier Ref.app/Contents/MacOS/glacier-ref"
           mv "$QT_ROOT_DIR" "$QT_ROOT_DIR.hidden"
           trap 'mv "$QT_ROOT_DIR.hidden" "$QT_ROOT_DIR"' EXIT
-          clean=(env -i "PATH=/usr/bin:/bin" "HOME=$HOME")
+          clean=(env -i "PATH=/usr/bin:/bin" "HOME=$HOME" LANG=en_US.UTF-8)
           "${clean[@]}" "$exe" --version
           "${clean[@]}" "$exe" --check-image-formats
           "${clean[@]}" "$exe" --platform-info
