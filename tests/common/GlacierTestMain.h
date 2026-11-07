@@ -10,7 +10,9 @@
 
 #include <QByteArray>
 #include <QLocale>
+#include <QSettings>
 #include <QString>
+#include <QTemporaryDir>
 #include <QTest>
 
 #include <clocale>
@@ -52,6 +54,16 @@ inline bool applyRequestedLocale()
     return true;
 }
 
+// Every test process gets its own, empty settings (an INI file in a temporary
+// directory): parallel CTest entries never share preferences, and tests
+// never touch the user's real settings or the Windows registry.
+inline void isolateSettings()
+{
+    static QTemporaryDir dir; // removed when the test process exits
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir.path());
+}
+
 } // namespace glacier::test
 
 #define GLACIER_TEST_MAIN_WITH_APP(AppType, TestObject)                                            \
@@ -60,6 +72,7 @@ inline bool applyRequestedLocale()
         AppType app(argc, argv);                                                                   \
         if (!glacier::test::applyRequestedLocale())                                                \
             return 2;                                                                              \
+        glacier::test::isolateSettings();                                                          \
         TestObject tc;                                                                             \
         QTEST_SET_MAIN_SOURCE_PATH                                                                 \
         return QTest::qExec(&tc, argc, argv);                                                      \
