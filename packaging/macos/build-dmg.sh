@@ -37,8 +37,10 @@ required=(
     Contents/PlugIns/imageformats/libqwebp.dylib
     Contents/PlugIns/imageformats/libqtiff.dylib
     Contents/Frameworks/QtSvg.framework
-    Contents/Resources/qt.conf
 )
+# No qt.conf check: Qt 6 finds the plugins in Contents/PlugIns by itself and
+# macdeployqt may not write one. The smoke test (CI Qt moved away) proves
+# that the bundled plugins load.
 for file in "${required[@]}"; do
     [ -e "$app/$file" ] || die "missing from the bundle: $file"
 done
